@@ -1,0 +1,30 @@
+name: canvasflow
+description: "CanvasFlow — create photo collages and swipe-through carousel posts on a continuous canvas."
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.5.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  image_picker: ^1.1.2        # native photo picker (iOS/Android)
+  image: ^4.2.0               # pure-Dart image slicing/encoding for export
+  path_provider: ^2.1.4       # on-device storage locations
+  path: ^1.9.0
+  shared_preferences: ^2.3.2  # lightweight local project index
+  uuid: ^4.5.1
+  permission_handler: ^11.3.1 # photo/storage permission handling
+  vector_math: ^2.1.4
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/templates/

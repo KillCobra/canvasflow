@@ -1,0 +1,63 @@
+name: iOS Release Build
+
+# Builds the iOS app on a macOS runner when a release tag (v*) is pushed.
+# Produces an unsigned .app / .ipa artifact. Code signing for installing on a
+# physical device requires an Apple Developer account and signing secrets (see
+# the README "iOS signing" section) — left out here so the build runs without
+# any paid account for CI verification and simulator/unsigned archives.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch: {}
+
+jobs:
+  build-ios:
+    name: Build iOS (unsigned)
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Flutter version
+        run: flutter --version
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze || true   # style infos are non-blocking
+
+      - name: Run tests
+        run: flutter test
+
+      - name: Build iOS (no codesign)
+        run: flutter build ios --release --no-codesign
+
+      - name: Package .app artifact
+        run: |
+          cd build/ios/iphoneos
+          zip -r -y CanvasFlow-ios-unsigned.zip Runner.app
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: canvasflow-ios-unsigned
+          path: build/ios/iphoneos/CanvasFlow-ios-unsigned.zip
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Attach to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/ios/iphoneos/CanvasFlow-ios-unsigned.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
