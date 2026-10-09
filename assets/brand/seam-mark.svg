@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Seam mark. Three 4:5 panels (carousel slides) separated by seams; one continuous
+     champagne horizon flows across all three. Ivory #F2EFE9, champagne #D9C29C, ground #0A0A0A. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="660" height="250" viewBox="0 0 660 250">
+  <defs><clipPath id="panels"><rect x="0" y="0" width="200" height="250" rx="26"/><rect x="230" y="0" width="200" height="250" rx="26"/><rect x="460" y="0" width="200" height="250" rx="26"/></clipPath></defs>
+  <g id="slides" fill="#F2EFE9"><rect x="0" y="0" width="200" height="250" rx="26"/><rect x="230" y="0" width="200" height="250" rx="26"/><rect x="460" y="0" width="200" height="250" rx="26"/></g>
+  <path id="horizon" clip-path="url(#panels)" fill="#D9C29C" d="M-10 216 C 290 216, 370 70, 670 70 L 670 260 L -10 260 Z"/>
+</svg>

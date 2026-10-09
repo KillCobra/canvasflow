@@ -1,0 +1,17 @@
+[
+  {
+    "id": "remote-sunday-reset",
+    "name": "Sunday Reset",
+    "category": "Minimal",
+    "aspect": "4:5",
+    "slideCount": 3,
+    "background": { "kind": "solid", "color": "#EEF1F4" },
+    "items": [
+      { "kind": "text", "text": "sunday reset", "font": "italic", "size": 130, "color": "#16120B", "x": 540, "y": 300 },
+      { "kind": "slot", "x": 540, "y": 860, "w": 760, "h": 760, "frame": "circle" },
+      { "kind": "slot", "x": 1620, "y": 675, "w": 900, "h": 1150, "frame": "arch" },
+      { "kind": "slot", "x": 2700, "y": 640, "w": 780, "h": 960, "frame": "polaroid", "rotation": 0.04, "shadow": true },
+      { "kind": "text", "text": "slow down", "font": "script", "size": 96, "color": "#5B5650", "x": 2700, "y": 1250 }
+    ]
+  }
+]
