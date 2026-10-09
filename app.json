@@ -50,7 +50,8 @@
           "isAccessMediaLocationEnabled": false
         }
       ],
-      "expo-font"
+      "expo-font",
+      "./plugins/with-scene-lifecycle"
     ],
     "experiments": {
       "typedRoutes": true,
