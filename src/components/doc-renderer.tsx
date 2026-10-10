@@ -41,11 +41,13 @@ import {
   isCardFrame,
   photoImageRect,
   stampBite,
+  tornDepth,
 } from '@/lib/geometry';
 import type { ImageMap } from '@/lib/images';
 import { assetUri } from '@/lib/projects';
 import { buildParagraph, curveLayout, highlightBars, isCurved, outlinePx, textPad } from '@/lib/text';
 import { textureEffect, textureUniforms } from '@/lib/textures';
+import { hashSeed, tornOutline } from '@/lib/torn';
 import {
   type Background,
   type Crop,
@@ -304,12 +306,19 @@ function Photo({
   const showBody = part == null;
   const showUnder = part == null || part === 'under';
   const showBorder = part == null || part === 'over';
-  const outer = framePath(shape, { x, y, width: w, height: h }, layer.radius);
-  // Card frames (polaroid, film, stamp...) hold the image in a square-cornered window.
+  const seed = hashSeed(layer.id);
+  const outer = framePath(shape, { x, y, width: w, height: h }, layer.radius, seed);
+  // Card frames (polaroid, film, stamp...) hold the image in a square-cornered window;
+  // a torn frame's photo is torn too, so a ragged rim of paper shows around it.
   const card = isCardFrame(shape);
-  const clip = card ? framePath('rect', inner, Math.min(layer.radius, 6)) : outer;
-  // Film and stamp edges have holes and bites, so their edge shading follows the outline.
-  const cutEdge = shape === 'film' || shape === 'stamp';
+  const clip =
+    shape === 'torn'
+      ? tornPath(inner, seed ^ 0x5bd1e995, tornDepth(w, h) * 0.55)
+      : card
+        ? framePath('rect', inner, Math.min(layer.radius, 6))
+        : outer;
+  // Film, stamp and torn edges have holes and bites, so their edge shading follows the outline.
+  const cutEdge = shape === 'film' || shape === 'stamp' || shape === 'torn';
 
   if (layer.cutout && layer.src) return image ? <CutoutSticker layer={layer} image={image} matrix={matrix} /> : null;
 
@@ -476,9 +485,18 @@ function CutoutSticker({ layer, image, matrix }: { layer: PhotoLayer; image: SkI
   );
 }
 
-/** Outline of a frame shape around `r`. */
-export function framePath(shape: FrameShape, r: SkRect, radius: number): SkPath {
+/** A closed path through a torn outline's points. */
+export function tornPath(r: SkRect, seed: number, depth: number): SkPath {
+  const pts = tornOutline(r, seed, depth);
+  const b = Skia.PathBuilder.Make().moveTo(pts[0], pts[1]);
+  for (let i = 2; i < pts.length; i += 2) b.lineTo(pts[i], pts[i + 1]);
+  return b.close().build();
+}
+
+/** Outline of a frame shape around `r`. `seed` keeps a torn edge the same every time it's drawn. */
+export function framePath(shape: FrameShape, r: SkRect, radius: number, seed = 1): SkPath {
   const b = Skia.PathBuilder.Make();
+  if (shape === 'torn') return tornPath(r, seed, tornDepth(r.width, r.height));
   if (shape === 'circle') return b.addOval(r).build();
   if (shape === 'arch') {
     const cap = archCap(r.width, r.height);
@@ -634,6 +652,14 @@ function LayerContent({ layer }: { layer: Exclude<Layer, PhotoLayer> }) {
   if (layer.type === 'drawing') return <DrawingNode layer={layer} />;
   if (layer.shape === 'circle') {
     return <Oval x={x} y={y} width={w} height={h} color={layer.color} />;
+  }
+  if (layer.shape === 'torn') {
+    return (
+      <Path
+        path={tornPath({ x, y, width: w, height: h }, hashSeed(layer.id), Math.max(5, Math.min(w, h) * 0.06))}
+        color={layer.color}
+      />
+    );
   }
   return <RoundedRect x={x} y={y} width={w} height={h} r={layer.radius} color={layer.color} />;
 }

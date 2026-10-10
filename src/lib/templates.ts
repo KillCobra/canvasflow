@@ -5,7 +5,7 @@ import { useSyncExternalStore } from 'react';
 import { DEFAULT_ADJUST } from './adjust';
 import { useMyTemplates } from './my-templates';
 import { TEMPLATES } from './template-catalog';
-import { type DoodleShape, type Template, doodleStrokes } from './template-kit';
+import { DOODLE_SHAPES, type DoodleShape, type Template, doodleStrokes } from './template-kit';
 import { measureText } from './text';
 import { ASPECTS, type Doc, type Layer, uid } from './types';
 
@@ -21,7 +21,7 @@ export type { Template, TemplateCategory } from './template-kit';
 // carrying the right tags.
 
 /** Picked by hand; shown when there's nothing personal to show yet. */
-const FEATURED = ['postcard', 'polaroid-wall', 'contact-sheet', 'summer-recap', 'notebook', 'big-type', 'tips', 'magazine', 'scrapbook', 'arches'];
+const FEATURED = ['torn-pages', 'doodle-diary', 'postcard', 'polaroid-wall', 'contact-sheet', 'summer-recap', 'notebook', 'big-type', 'tips', 'magazine', 'scrapbook', 'arches'];
 
 export const featured = (list: Template[]) =>
   FEATURED.map((id) => list.find((t) => t.id === id)).filter((t): t is Template => !!t);
@@ -72,6 +72,13 @@ export const COLLECTIONS: Collection[] = [
     subtitle: 'Quiet layouts that let photos breathe',
     match: ['minimal'],
     cover: 'clean-lines',
+  },
+  {
+    id: 'scraps',
+    title: 'Doodles & scraps',
+    subtitle: 'Torn paper, tape and hand-drawn ink',
+    match: ['doodle', 'torn'],
+    cover: 'doodle-diary',
   },
   {
     id: 'analog',
@@ -239,7 +246,7 @@ const listeners = new Set<() => void>();
 const cacheFile = () => new File(Paths.document, 'templates-remote.json');
 
 const isNum = (v: unknown) => typeof v === 'number' && Number.isFinite(v);
-const DOODLES: DoodleShape[] = ['arrow', 'underline', 'heart', 'star', 'circle', 'sparkle', 'route', 'squiggle'];
+const DOODLES: readonly DoodleShape[] = DOODLE_SHAPES;
 const isStr = (v: unknown) => typeof v === 'string';
 
 function validItem(i: unknown): boolean {

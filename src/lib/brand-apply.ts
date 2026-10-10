@@ -66,7 +66,7 @@ function collect(doc: Doc): Tone[] {
 }
 
 const isCard = (l: Extract<Layer, { type: 'photo' }>) =>
-  l.frame === 'polaroid' || l.frame === 'taped' || l.frame === 'film' || l.frame === 'stamp';
+  l.frame === 'polaroid' || l.frame === 'taped' || l.frame === 'film' || l.frame === 'stamp' || l.frame === 'torn';
 
 type Swatch = { rgb: RGB; lum: number; sat: number };
 

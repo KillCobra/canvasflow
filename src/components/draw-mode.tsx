@@ -1,7 +1,7 @@
 import { Canvas, Group, Path, type Transforms3d, rect } from '@shopify/react-native-skia';
 import * as Haptics from 'expo-haptics';
 import { useEffect } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
   FadeIn,
@@ -13,6 +13,8 @@ import Animated, {
 } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
 
+import { useEditorPrefs } from '@/lib/editor-prefs';
+import { smoothStroke } from '@/lib/smooth';
 import { type Doc, type Stroke, canvasSize } from '@/lib/types';
 import { C, PALETTE, T } from '@/theme';
 
@@ -20,7 +22,7 @@ import { BrandColors } from './brand-colors';
 import { ColorWell } from './color-well';
 import { StrokeLine, strokePath } from './drawing-node';
 import { viewMetrics } from './editor-canvas';
-import { HScroll, IconButton, PressableScale, Swatch } from './ui';
+import { HScroll, Icon, IconButton, PressableScale, Swatch } from './ui';
 
 export type Brush = { color: string; width: number };
 
@@ -71,7 +73,16 @@ export function DrawOverlay({
     if (!inking.get()) live.set([]);
   }, [strokes, inking, live]);
 
-  const finish = (points: number[]) => onStroke({ points, color: brush.color, width: brush.width });
+  const smoothInk = useEditorPrefs((s) => s.smoothInk);
+  // With Smooth on, the stroke is tidied as the finger lifts: steadied, straightened
+  // when it was meant to be straight, closed when it comes back round.
+  // Finger wobble is measured in screen points, so it's told the zoom.
+  const finish = (points: number[]) =>
+    onStroke({
+      points: smoothInk ? smoothStroke(points, brush.width, { scale: 1 / vs }) : points,
+      color: brush.color,
+      width: brush.width,
+    });
 
   const toCanvas = (sx: number, sy: number) => {
     'worklet';
@@ -154,7 +165,9 @@ export function DrawOverlay({
         </Canvas>
       </GestureDetector>
       <Animated.View entering={FadeIn.delay(150)} style={styles.hint} pointerEvents="none">
-        <Text style={styles.hintText}>One finger draws · two fingers scroll</Text>
+        <Text style={styles.hintText}>
+          One finger draws · two fingers scroll{smoothInk ? ' · strokes smooth as you lift' : ''}
+        </Text>
       </Animated.View>
     </View>
   );
@@ -176,10 +189,24 @@ export function DrawToolbar({
   onCancel: () => void;
   onDone: () => void;
 }) {
+  const smoothInk = useEditorPrefs((s) => s.smoothInk);
+  const setSmoothInk = useEditorPrefs((s) => s.setSmoothInk);
   return (
     <View style={styles.panel}>
       <View style={styles.header}>
         <Text style={styles.title}>Draw</Text>
+        <Pressable
+          onPress={() => {
+            Haptics.selectionAsync();
+            setSmoothInk(!smoothInk);
+          }}
+          accessibilityRole="switch"
+          accessibilityState={{ checked: smoothInk }}
+          accessibilityLabel="Smooth strokes"
+          style={[styles.smooth, smoothInk && styles.smoothOn]}>
+          <Icon name={{ ios: 'scribble.variable', android: 'gesture' }} size={14} color={smoothInk ? C.accentInk : C.textDim} />
+          <Text style={[styles.smoothText, smoothInk && { color: C.accentInk }]}>Smooth</Text>
+        </Pressable>
         <View style={{ flex: 1 }} />
         <IconButton
           label="Undo stroke"
@@ -234,6 +261,18 @@ const styles = StyleSheet.create({
   panel: { flex: 1, gap: 4 },
   header: { flexDirection: 'row', alignItems: 'center', gap: 2, paddingLeft: 18, paddingRight: 8, height: 44 },
   title: { ...T.display, fontSize: 22 },
+  smooth: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginLeft: 12,
+    paddingHorizontal: 10,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: C.surface,
+  },
+  smoothOn: { backgroundColor: C.accent },
+  smoothText: { ...T.semibold, color: C.textDim, fontSize: 12 },
   widths: { flexDirection: 'row', gap: 8, paddingHorizontal: 16 },
   width: {
     width: 40,

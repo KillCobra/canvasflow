@@ -58,7 +58,7 @@ type LayerBase = {
 /** Normalized 0..1 rect, top-left origin, in the upright source image. */
 export type NormRect = { x: number; y: number; width: number; height: number };
 
-export type FrameShape = 'rect' | 'circle' | 'arch' | 'polaroid' | 'taped' | 'film' | 'stamp';
+export type FrameShape = 'rect' | 'circle' | 'arch' | 'polaroid' | 'taped' | 'film' | 'stamp' | 'torn';
 
 export type PhotoLayer = LayerBase & {
   type: 'photo';
@@ -134,7 +134,8 @@ export type TextLayer = LayerBase & {
 
 export type ShapeLayer = LayerBase & {
   type: 'shape';
-  shape: 'rect' | 'circle' | 'line';
+  /** 'torn': a scrap of paper with hand-torn edges. */
+  shape: 'rect' | 'circle' | 'line' | 'torn';
   color: string;
   radius: number;
 };

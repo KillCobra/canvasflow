@@ -188,8 +188,8 @@ function oneOf<T extends string>(v: unknown, options: readonly T[]): T | undefin
   return options.includes(v as T) ? (v as T) : undefined;
 }
 
-const FRAMES: FrameShape[] = ['rect', 'circle', 'arch', 'polaroid', 'taped', 'film', 'stamp'];
-const SHAPES: ShapeLayer['shape'][] = ['rect', 'circle', 'line'];
+const FRAMES: FrameShape[] = ['rect', 'circle', 'arch', 'polaroid', 'taped', 'film', 'stamp', 'torn'];
+const SHAPES: ShapeLayer['shape'][] = ['rect', 'circle', 'line', 'torn'];
 const TEXTURE_IDS = TEXTURES.map((t) => t.id);
 const FILTER_IDS = FILTERS.map((f) => f.id);
 const BIG = 100_000;

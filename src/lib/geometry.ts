@@ -52,7 +52,10 @@ export function homeSlide(l: Layer, slideWidth: number) {
  * (polaroid, taped print, film strip, postage stamp).
  */
 export const isCardFrame = (f: FrameShape | undefined) =>
-  f === 'polaroid' || f === 'taped' || f === 'film' || f === 'stamp';
+  f === 'polaroid' || f === 'taped' || f === 'film' || f === 'stamp' || f === 'torn';
+
+/** How deep a torn frame's tear bites, for a frame w x h. */
+export const tornDepth = (w: number, h: number) => Math.max(4, Math.min(w, h) * 0.035);
 
 /** Thickness of a film strip's sprocket bands, which run along its long side. */
 export const filmBand = (w: number, h: number) => Math.min(w, h) * 0.13;
@@ -76,6 +79,11 @@ export function frameInner(l: Pick<PhotoLayer, 'w' | 'h' | 'frame'>) {
     return l.w >= l.h
       ? { x: x + side, y: y + band, width: l.w - side * 2, height: l.h - band * 2 }
       : { x: x + band, y: y + side, width: l.w - band * 2, height: l.h - side * 2 };
+  }
+  if (l.frame === 'torn') {
+    // Paper showing around the photo, past the deepest bite of the tear.
+    const m = tornDepth(l.w, l.h) + min * 0.045;
+    return { x: x + m, y: y + m, width: l.w - m * 2, height: l.h - m * 2 };
   }
   if (l.frame === 'stamp') {
     // Paper margin past the perforation.

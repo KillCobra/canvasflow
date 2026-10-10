@@ -46,7 +46,8 @@ function tabsFor(layer: Layer): LayerTab[] {
       'opacity',
     ];
   }
-  if (layer.type === 'shape') return ['color', 'corners', 'align', 'opacity'];
+  // Only a block has corners to round; torn paper, circles and lines don't.
+  if (layer.type === 'shape') return layer.shape === 'rect' ? ['color', 'corners', 'align', 'opacity'] : ['color', 'align', 'opacity'];
   if (layer.type === 'drawing') return [...DRAWING_TABS];
   return layer.sticker ? ['align', 'opacity'] : ['color', 'style', 'align', 'opacity'];
 }
@@ -59,6 +60,7 @@ const FRAMES: { id: FrameShape; label: string }[] = [
   { id: 'taped', label: 'Taped' },
   { id: 'film', label: 'Film' },
   { id: 'stamp', label: 'Stamp' },
+  { id: 'torn', label: 'Torn' },
 ];
 
 /** Card colour a decorative frame starts with (the swatches recolour it via borderColor). */
@@ -66,6 +68,7 @@ const CARD_COLOR: Partial<Record<FrameShape, string>> = {
   polaroid: '#FFFFFF',
   taped: '#FFFFFF',
   stamp: '#FFFFFF',
+  torn: '#FBF8F2',
   film: '#141414',
 };
 

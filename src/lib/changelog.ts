@@ -8,6 +8,34 @@ export type Release = { id: string; version: string; date: string; title: string
 
 export const CHANGELOG: Release[] = [
   {
+    id: '2026-10-ink-paper',
+    version: '1.0.0',
+    date: 'October 2026',
+    title: 'Ink and paper',
+    items: [
+      {
+        icon: { ios: 'scribble.variable', android: 'gesture' },
+        title: 'Smooth drawing',
+        detail: 'Draw a doodle your way and it tidies up as you lift: wobbles smoothed, corners kept sharp, straight lines made straight and loops closed. Turn it off with Smooth in Draw.',
+      },
+      {
+        icon: { ios: 'doc.plaintext', android: 'note' },
+        title: 'Torn paper',
+        detail: 'A torn-edge photo frame, and paper scraps under Shapes for titles and notes. Every tear is its own.',
+      },
+      {
+        icon: { ios: 'pencil.and.scribble', android: 'draw' },
+        title: 'Curvy doodles',
+        detail: 'Waves, loops, swooshes, spirals, flowers, suns, clouds, zigzags, scribbles and bursts, drawn with a hand-made wobble.',
+      },
+      {
+        icon: { ios: 'sparkles', android: 'auto_awesome' },
+        title: 'Five new templates',
+        detail: 'Torn Pages, Cut & Paste, Doodle Diary, Sketchbook and Scribble Notes, in a new Doodles & scraps collection.',
+      },
+    ],
+  },
+  {
     id: '2026-10-plan-post',
     version: '1.0.0',
     date: 'October 2026',

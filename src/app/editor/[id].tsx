@@ -542,6 +542,16 @@ export default function EditorScreen() {
       sparkle: [170, 170, 10],
       route: [620, 80, 18],
       squiggle: [440, 100, 14],
+      wave: [760, 90, 12],
+      loops: [640, 120, 12],
+      spiral: [240, 240, 12],
+      swoosh: [520, 220, 14],
+      flower: [220, 300, 10],
+      sun: [260, 260, 11],
+      cloud: [360, 200, 12],
+      zigzag: [480, 90, 12],
+      scribble: [420, 110, 10],
+      burst: [260, 260, 11],
     };
     const [w, h, width] = sizes[shape];
     const k = grid ? 2 : 1;
@@ -655,19 +665,20 @@ export default function EditorScreen() {
   };
 
   const addShape = (shape: ShapeLayer['shape']) => {
-    const size = shape === 'line' ? { w: 640, h: 10 } : { w: 420, h: 420 };
+    const size = shape === 'line' ? { w: 640, h: 10 } : shape === 'torn' ? { w: 620, h: 260 } : { w: 420, h: 420 };
     addLayers([
       {
         id: uid(),
         type: 'shape',
         shape,
-        color: C.accent,
+        // A paper scrap starts as paper, slightly turned, ready for a title on top.
+        color: shape === 'torn' ? '#FBF8F2' : C.accent,
         radius: 0,
         ...size,
         x: slideCenter(),
         y: centerY,
         scale: 1,
-        rotation: 0,
+        rotation: shape === 'torn' ? -0.03 : 0,
         opacity: 1,
       },
     ]);

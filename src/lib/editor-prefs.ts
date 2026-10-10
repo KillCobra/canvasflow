@@ -6,9 +6,11 @@ import { create } from 'zustand';
 type Prefs = {
   /** Moving layers snaps to slide edges, centers and other layers. */
   snapping: boolean;
+  /** Freehand strokes are smoothed when the finger lifts. */
+  smoothInk: boolean;
 };
 
-const DEFAULTS: Prefs = { snapping: true };
+const DEFAULTS: Prefs = { snapping: true, smoothInk: true };
 
 const file = () => new File(Paths.document, 'editor-prefs.json');
 
@@ -28,12 +30,18 @@ function write(prefs: Prefs) {
   }
 }
 
-type PrefsState = Prefs & { setSnapping: (on: boolean) => void };
+type PrefsState = Prefs & { setSnapping: (on: boolean) => void; setSmoothInk: (on: boolean) => void };
+
+const prefsOf = (s: Prefs): Prefs => ({ snapping: s.snapping, smoothInk: s.smoothInk });
 
 export const useEditorPrefs = create<PrefsState>((set, get) => ({
   ...read(),
   setSnapping: (snapping) => {
     set({ snapping });
-    write({ snapping: get().snapping });
+    write(prefsOf(get()));
+  },
+  setSmoothInk: (smoothInk) => {
+    set({ smoothInk });
+    write(prefsOf(get()));
   },
 }));

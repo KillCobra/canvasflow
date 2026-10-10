@@ -50,7 +50,46 @@ export type Shp = {
   rotation?: number;
 };
 
-export type DoodleShape = 'arrow' | 'underline' | 'heart' | 'star' | 'circle' | 'sparkle' | 'route' | 'squiggle';
+export type DoodleShape =
+  | 'arrow'
+  | 'underline'
+  | 'heart'
+  | 'star'
+  | 'circle'
+  | 'sparkle'
+  | 'route'
+  | 'squiggle'
+  | 'wave'
+  | 'loops'
+  | 'spiral'
+  | 'swoosh'
+  | 'flower'
+  | 'sun'
+  | 'cloud'
+  | 'zigzag'
+  | 'scribble'
+  | 'burst';
+
+export const DOODLE_SHAPES: DoodleShape[] = [
+  'arrow',
+  'underline',
+  'heart',
+  'star',
+  'circle',
+  'sparkle',
+  'route',
+  'squiggle',
+  'wave',
+  'loops',
+  'spiral',
+  'swoosh',
+  'flower',
+  'sun',
+  'cloud',
+  'zigzag',
+  'scribble',
+  'burst',
+];
 
 /** Hand-drawn ink, generated to fit its box. Becomes an editable drawing layer. */
 export type Doodle = {
@@ -291,13 +330,171 @@ function shapeStrokes(shape: DoodleShape, w: number, h: number, width: number): 
         }),
       ];
     }
+    case 'wave': {
+      // A long, lazy wave; about one crest per 2.2 box-heights.
+      const periods = Math.max(1, Math.min(10, w / (h * 2.2)));
+      return [sample(Math.round(periods * 36), (t) => [-hw + t * w, Math.sin(t * periods * Math.PI * 2 + 0.4) * hh * 0.85])];
+    }
+    case 'loops':
+    case 'scribble': {
+      // Cursive loop-de-loops (a prolate trochoid), fitted to the box. Scribble packs them tight.
+      const n = shape === 'loops' ? Math.max(2, Math.min(14, Math.round(w / h))) : Math.max(4, Math.min(30, Math.round((w / h) * 2.6)));
+      const reach = shape === 'loops' ? 1.9 : 2.6;
+      const raw = sample(n * 32, (t) => {
+        const a = t * n * Math.PI * 2;
+        return [a - reach * Math.sin(a), -Math.cos(a)];
+      });
+      return [fit(raw, w, h * (shape === 'loops' ? 0.9 : 1))];
+    }
+    case 'spiral': {
+      const turns = 2.6;
+      return [
+        sample(120, (t) => {
+          const a = t * turns * Math.PI * 2;
+          return [Math.cos(a) * hw * t, Math.sin(a) * hh * t];
+        }),
+      ];
+    }
+    case 'swoosh':
+      // A big expressive S-curve that ends in a small curl.
+      return [
+        sample(60, (t) => {
+          const p0: Pt = [-hw, hh * 0.55];
+          const p1: Pt = [-hw * 0.15, -hh * 1.5];
+          const p2: Pt = [hw * 0.25, hh * 1.5];
+          const p3: Pt = [hw * 0.92, -hh * 0.35];
+          const u = 1 - t;
+          return [
+            u ** 3 * p0[0] + 3 * u * u * t * p1[0] + 3 * u * t * t * p2[0] + t ** 3 * p3[0],
+            u ** 3 * p0[1] + 3 * u * u * t * p1[1] + 3 * u * t * t * p2[1] + t ** 3 * p3[1],
+          ];
+        }),
+        sample(24, (t) => {
+          const a = Math.PI * 0.2 + t * Math.PI * 1.7;
+          const r = Math.min(hw, hh) * 0.16;
+          return [hw * 0.92 - r * 0.7 + Math.cos(a) * r, -hh * 0.35 - Math.sin(a) * r];
+        }),
+      ];
+    case 'flower': {
+      // Five petals (a rose curve), a stem and a leaf.
+      const cy = -hh * 0.3;
+      const pr = Math.min(hw, hh * 0.68);
+      const petals = sample(100, (t) => {
+        const a = t * Math.PI;
+        const r = Math.cos(5 * a) * pr;
+        return [Math.cos(a) * r, cy + Math.sin(a) * r];
+      });
+      const centre = sample(24, (t) => {
+        const a = t * Math.PI * 2.1;
+        return [Math.cos(a) * pr * 0.16, cy + Math.sin(a) * pr * 0.16];
+      });
+      const stem = sample(24, (t) => [Math.sin(t * Math.PI) * hw * 0.12, cy + pr * 0.3 + t * (hh - cy - pr * 0.3)]);
+      const leaf = sample(30, (t) => {
+        const a = t * Math.PI * 2;
+        const lx = hw * 0.2 + Math.cos(a) * hw * 0.22;
+        const ly = hh * 0.45 + Math.sin(a) * hh * 0.09;
+        return [lx, ly - (lx - hw * 0.05) * 0.35];
+      });
+      return [petals, centre, stem, leaf];
+    }
+    case 'sun': {
+      const r = Math.min(hw, hh) * 0.42;
+      const disc = sample(48, (t) => {
+        const a = -1.2 + t * (Math.PI * 2 + 0.3);
+        return [Math.cos(a) * r, Math.sin(a) * r];
+      });
+      const rays = Array.from({ length: 10 }, (_, i) => {
+        const a = (i / 10) * Math.PI * 2;
+        const r0 = r * 1.32;
+        const r1 = Math.min(hw, hh) * (i % 2 ? 0.86 : 0.98);
+        return [Math.cos(a) * r0, Math.sin(a) * r0, Math.cos(a) * r1, Math.sin(a) * r1];
+      });
+      return [disc, ...rays];
+    }
+    case 'cloud': {
+      // Three bumps over a softly flat base.
+      const base = hh * 0.55;
+      const bumps: [number, number, number][] = [
+        [-hw * 0.5, base - hh * 0.35, hh * 0.45],
+        [-hw * 0.02, base - hh * 0.75, hh * 0.65],
+        [hw * 0.48, base - hh * 0.38, hh * 0.48],
+      ];
+      const pts: number[] = [];
+      pts.push(-hw * 0.88, base);
+      for (const [cx, cy, r] of bumps) {
+        const arc = sample(18, (t) => {
+          const a = Math.PI * (1.05 - t * 1.1);
+          return [cx + Math.cos(a) * r * Math.min(1, (hw * 0.6) / r), cy - Math.sin(a) * r];
+        });
+        pts.push(...arc);
+      }
+      pts.push(hw * 0.88, base);
+      pts.push(...sample(10, (t) => [hw * 0.88 - t * hw * 1.76, base + Math.sin(t * Math.PI) * hh * 0.08]));
+      return [pts];
+    }
+    case 'zigzag': {
+      const n = Math.max(3, Math.round(w / (h * 0.6)));
+      const pts: number[] = [];
+      for (let i = 0; i <= n; i++) {
+        const x = -hw + (i / n) * w;
+        const y = i % 2 ? -hh * 0.8 : hh * 0.8;
+        pts.push(x, y, x, y);
+      }
+      return [pts];
+    }
+    case 'burst': {
+      // Short lines radiating out, like a "wow" mark.
+      return Array.from({ length: 12 }, (_, i) => {
+        const a = (i / 12) * Math.PI * 2 + 0.2;
+        const r0 = Math.min(hw, hh) * (i % 2 ? 0.42 : 0.3);
+        const r1 = Math.min(hw, hh) * (i % 2 ? 0.82 : 1);
+        return [Math.cos(a) * r0 * (hw / Math.min(hw, hh)), Math.sin(a) * r0 * (hh / Math.min(hw, hh)), Math.cos(a) * r1 * (hw / Math.min(hw, hh)), Math.sin(a) * r1 * (hh / Math.min(hw, hh))];
+      });
+    }
   }
+}
+
+/** Scales flat points to fill a w x h box centred on the origin. */
+function fit(points: number[], w: number, h: number) {
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  for (let i = 0; i < points.length; i += 2) {
+    minX = Math.min(minX, points[i]);
+    maxX = Math.max(maxX, points[i]);
+    minY = Math.min(minY, points[i + 1]);
+    maxY = Math.max(maxY, points[i + 1]);
+  }
+  const sx = w / (maxX - minX || 1);
+  const sy = h / (maxY - minY || 1);
+  return points.map((v, i) => (i % 2 ? (v - (minY + maxY) / 2) * sy : (v - (minX + maxX) / 2) * sx));
+}
+
+/** Shapes that look better perfectly regular (no hand wobble). */
+const STEADY = new Set<DoodleShape>(['route', 'zigzag', 'star', 'burst']);
+
+/**
+ * A slight, smooth wander so procedural shapes read as drawn by hand. The
+ * same doodle always wobbles the same way.
+ */
+function wobble(lines: number[][], amount: number, seed: number) {
+  return lines.map((pts, li) =>
+    pts.map((v, i) => {
+      const k = Math.floor(i / 2);
+      const axis = i % 2;
+      const phase = seed * 0.37 + li * 1.7 + axis * 2.3;
+      return v + amount * (Math.sin(k * 0.21 + phase) * 0.6 + Math.sin(k * 0.067 + phase * 1.9) * 0.4);
+    }),
+  );
 }
 
 /** The doodle's strokes, plus the layer box that fits them (with room for the line). */
 export function doodleStrokes(d: Doodle): { strokes: Stroke[]; w: number; h: number } {
   const width = d.width ?? Math.max(4, Math.min(d.w, d.h) * 0.06);
-  const lines = shapeStrokes(d.shape, d.w, d.h, width);
+  const base = shapeStrokes(d.shape, d.w, d.h, width);
+  const seed = Math.round(d.x * 7 + d.y * 13 + d.w);
+  const lines = STEADY.has(d.shape) ? base : wobble(base, Math.min(d.w, d.h) * 0.012 + width * 0.08, seed);
   const strokes = lines.map((points) => ({
     points: d.flip ? points.map((v, i) => (i % 2 ? v : -v)) : points,
     color: d.color,

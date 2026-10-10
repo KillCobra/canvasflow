@@ -392,6 +392,16 @@ export const DOODLES: { shape: DoodleShape; label: string; w: number; h: number 
   { shape: 'sparkle', label: 'Sparkle', w: 26, h: 26 },
   { shape: 'route', label: 'Route', w: 42, h: 12 },
   { shape: 'squiggle', label: 'Squiggle', w: 40, h: 12 },
+  { shape: 'wave', label: 'Wave', w: 42, h: 10 },
+  { shape: 'loops', label: 'Loops', w: 42, h: 12 },
+  { shape: 'swoosh', label: 'Swoosh', w: 40, h: 22 },
+  { shape: 'spiral', label: 'Spiral', w: 28, h: 28 },
+  { shape: 'flower', label: 'Flower', w: 22, h: 32 },
+  { shape: 'sun', label: 'Sun', w: 30, h: 30 },
+  { shape: 'cloud', label: 'Cloud', w: 38, h: 22 },
+  { shape: 'zigzag', label: 'Zigzag', w: 40, h: 10 },
+  { shape: 'scribble', label: 'Scribble', w: 40, h: 14 },
+  { shape: 'burst', label: 'Burst', w: 30, h: 30 },
 ];
 
 /** A doodle drawn small for its button. */
@@ -418,7 +428,7 @@ export function ElementsPanel({
   onClose,
 }: {
   onAddDoodle: (shape: DoodleShape) => void;
-  onAddShape: (shape: 'rect' | 'circle' | 'line') => void;
+  onAddShape: (shape: 'rect' | 'circle' | 'line' | 'torn') => void;
   onAddSticker: (emoji: string) => void;
   onAddGrid: (id: GridId) => void;
   /** A brand-kit logo or brand image. */
@@ -497,6 +507,7 @@ export function ElementsPanel({
         <ToolButton icon={{ ios: 'square.fill', android: 'square' }} label="Block" onPress={() => onAddShape('rect')} />
         <ToolButton icon={{ ios: 'circle.fill', android: 'circle' }} label="Circle" onPress={() => onAddShape('circle')} />
         <ToolButton icon={{ ios: 'minus', android: 'remove' }} label="Line" onPress={() => onAddShape('line')} />
+        <ToolButton icon={{ ios: 'doc.plaintext', android: 'note' }} label="Paper" onPress={() => onAddShape('torn')} />
         <View style={styles.vDivider} />
         {DOODLES.map((d) => (
           <Pressable
