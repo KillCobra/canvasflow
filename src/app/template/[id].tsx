@@ -12,6 +12,7 @@ import {
   stripSize,
 } from '@/components/template-thumb';
 import { IconButton, PressableScale } from '@/components/ui';
+import { useBrandColors, useBrandFonts } from '@/lib/brand';
 import { templateHeight, useTemplates } from '@/lib/templates';
 import { ASPECTS, SLIDE_WIDTH } from '@/lib/types';
 import { C, R, T } from '@/theme';
@@ -22,6 +23,9 @@ export default function TemplateDetailScreen() {
   const insets = useSafeAreaInsets();
   const { width, height: screenH } = useWindowDimensions();
   const template = useTemplates().find((t) => t.id === id);
+  const brandColors = useBrandColors();
+  const brandFonts = useBrandFonts();
+  const hasBrand = brandColors.length > 0 || brandFonts.length > 0;
   const [page, setPage] = useState(0);
   const pager = useRef<FlatList<number>>(null);
 
@@ -40,6 +44,7 @@ export default function TemplateDetailScreen() {
   // Big enough to judge, small enough to leave room for the strip and details.
   const slideW = Math.min(width - 56, (screenH * 0.4 * SLIDE_WIDTH) / H);
   const pages = Array.from({ length: template.slideCount }, (_, i) => i);
+  const photos = template.items.filter((i) => i.kind === 'slot').length;
   const strip = stripSize(template, 84, width - 40);
   const segment = strip.width / template.slideCount;
 
@@ -48,11 +53,11 @@ export default function TemplateDetailScreen() {
     setPage(i);
   };
 
-  const use = () => {
+  const use = (brand = false) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     // Close the detail (and the catalog under it, if any) before opening the editor.
     if (router.canDismiss()) router.dismissAll();
-    startFromTemplate(template);
+    startFromTemplate(template, { brand });
   };
 
   return (
@@ -119,7 +124,8 @@ export default function TemplateDetailScreen() {
               )}
             </View>
             <Text style={styles.meta}>
-              {template.slideCount} slides · {template.aspect} {ASPECTS[template.aspect].label} · {template.category}
+              {template.slideCount} slides · {photos} {photos === 1 ? 'photo' : 'photos'} · {template.aspect}{' '}
+              {ASPECTS[template.aspect].label} · {template.category}
             </Text>
           </View>
 
@@ -140,9 +146,25 @@ export default function TemplateDetailScreen() {
       </ScrollView>
 
       <View style={[styles.footer, { paddingBottom: insets.bottom + 12 }]}>
-        <PressableScale onPress={use} style={styles.cta}>
-          <Text style={styles.ctaText}>Use template</Text>
-        </PressableScale>
+        <View style={styles.ctaRow}>
+          {hasBrand && (
+            <View style={{ flex: 1 }}>
+              <PressableScale onPress={() => use(true)} style={[styles.cta, styles.ctaBrand]}>
+                <View style={styles.brandDots}>
+                  {brandColors.slice(0, 3).map((c) => (
+                    <View key={c} style={[styles.brandDot, { backgroundColor: c }]} />
+                  ))}
+                </View>
+                <Text style={[styles.ctaText, { color: C.text }]}>With my brand</Text>
+              </PressableScale>
+            </View>
+          )}
+          <View style={{ flex: 1 }}>
+            <PressableScale onPress={() => use()} style={styles.cta}>
+              <Text style={styles.ctaText}>Use template</Text>
+            </PressableScale>
+          </View>
+        </View>
       </View>
     </View>
   );
@@ -200,6 +222,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#0A0A0AF2',
   },
   cta: { height: 54, borderRadius: R.pill, backgroundColor: C.text, alignItems: 'center', justifyContent: 'center' },
+  ctaRow: { flexDirection: 'row', gap: 10 },
+  ctaBrand: { backgroundColor: C.surfaceHi, flexDirection: 'row', gap: 8, borderWidth: StyleSheet.hairlineWidth, borderColor: C.line },
+  brandDots: { flexDirection: 'row' },
+  brandDot: { width: 14, height: 14, borderRadius: 7, marginLeft: -4, borderWidth: 1.5, borderColor: C.surfaceHi },
   ctaText: { ...T.semibold, color: C.bg, fontSize: 16 },
   missing: { alignItems: 'center', justifyContent: 'center', gap: 18, padding: 32 },
   missingText: { ...T.display, fontSize: 24, textAlign: 'center' },

@@ -2,6 +2,7 @@ import { Image } from 'expo-image';
 import { StyleSheet, Text, View } from 'react-native';
 
 import type { ProjectSummary } from '@/lib/projects';
+import { tileCount } from '@/lib/types';
 import { C, R, T } from '@/theme';
 
 import { PressableScale } from './ui';
@@ -33,14 +34,14 @@ export function ProjectCard({
           <View style={[StyleSheet.absoluteFill, { backgroundColor: C.surfaceHi }]} />
         )}
         <View style={styles.badge}>
-          <Text style={styles.badgeText}>{doc.slideCount}</Text>
+          <Text style={styles.badgeText}>{tileCount(doc)}</Text>
         </View>
       </View>
       <Text style={styles.name} numberOfLines={1}>
         {doc.name}
       </Text>
       <Text style={styles.meta}>
-        {doc.aspect} · {timeAgo(doc.updatedAt)}
+        {doc.grid != null ? `Grid 3×${doc.grid}` : doc.aspect} · {timeAgo(doc.updatedAt)}
       </Text>
     </PressableScale>
   );

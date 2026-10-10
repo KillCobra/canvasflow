@@ -38,13 +38,24 @@ import { DocRenderer, LiveCroppedImage, layerTransform, useGroupTransform } from
 export const PAD_X = 36;
 export const PAD_Y = 16;
 
-/** Screen scale for the canvas: one slide fits the width, the full height fits. */
-export function viewMetrics(doc: Pick<Doc, 'aspect' | 'slideCount'>, width: number, height: number) {
+/** Side padding around a grid puzzle, which is shown whole (it's small on screen as it is). */
+const GRID_PAD = 14;
+
+/**
+ * Screen scale for the canvas. A carousel fits one slide to the width and
+ * scrolls sideways; a grid puzzle fits the whole grid, like a profile.
+ */
+export function viewMetrics(doc: Pick<Doc, 'aspect' | 'slideCount' | 'grid'>, width: number, height: number) {
+  if (doc.grid != null) {
+    const { width: W, height: CH } = canvasSize(doc);
+    const vs = Math.min((height - PAD_Y * 2) / CH, (width - GRID_PAD * 2) / W);
+    return { vs, offsetX: (width - W * vs) / 2, offsetY: Math.max(PAD_Y, (height - CH * vs) / 2), maxScroll: 0 };
+  }
   const H = ASPECTS[doc.aspect].height;
   const vs = Math.min((height - PAD_Y * 2) / H, (width - PAD_X * 2) / SLIDE_WIDTH);
   const contentWidth = canvasSize(doc).width * vs + PAD_X * 2;
   const offsetY = Math.max(PAD_Y, (height - H * vs) / 2);
-  return { vs, offsetY, maxScroll: Math.max(0, contentWidth - width) };
+  return { vs, offsetX: PAD_X, offsetY, maxScroll: Math.max(0, contentWidth - width) };
 }
 
 export type LiveTransform = { x: number; y: number; scale: number; rotation: number };
@@ -159,11 +170,13 @@ function boxAt(w: number, h: number, t: LiveTransform): Box {
  * Snaps a moving box to slide edges/centers, the canvas middle and other
  * layers' edges/centers. Returns the correction and the guide positions.
  */
-function snapBox(box: Box, others: Box[], slideCount: number, H: number, threshold: number) {
+function snapBox(box: Box, others: Box[], slideCount: number, H: number, rows: number, threshold: number) {
   'worklet';
   const xs: number[] = [];
   for (let i = 0; i <= slideCount * 2; i++) xs.push((i * SLIDE_WIDTH) / 2);
-  const ys: number[] = [0, H / 2, H];
+  // Edges and centres of every slide (and every row, in a grid puzzle).
+  const ys: number[] = [];
+  for (let i = 0; i <= rows * 2; i++) ys.push((i * H) / 2);
   for (const o of others) {
     xs.push(o.left, (o.left + o.right) / 2, o.right);
     ys.push(o.top, (o.top + o.bottom) / 2, o.bottom);
@@ -214,8 +227,10 @@ export function EditorCanvas({
   // (crashes on the UI thread), so this component opts out.
   'use no memo';
   const { width: W, height: H } = canvasSize(doc);
-  const { vs, offsetY, maxScroll } = viewMetrics(doc, width, height);
+  const { vs, offsetX, offsetY, maxScroll } = viewMetrics(doc, width, height);
   const slideCount = doc.slideCount;
+  const rows = doc.grid ?? 1;
+  const tileH = H / rows;
   const stamp = doc.updatedAt;
   const [dropId, setDropId] = useState<string | null>(null);
 
@@ -246,7 +261,7 @@ export function EditorCanvas({
           rotation: l.rotation,
           aspect: l.type === 'photo' ? l.aspect : 1,
           crop: l.type === 'photo' ? (l.crop ?? DEFAULT_CROP) : DEFAULT_CROP,
-          backdrop: b.right - b.left >= SLIDE_WIDTH * 0.9 && b.bottom - b.top >= H * 0.9,
+          backdrop: b.right - b.left >= SLIDE_WIDTH * 0.9 && b.bottom - b.top >= tileH * 0.9,
           blocked: !!l.hidden || !!l.locked,
           hidden: !!l.hidden,
           photo: l.type === 'photo',
@@ -256,7 +271,7 @@ export function EditorCanvas({
         };
       }),
     );
-  }, [doc.layers, layersSV, H]);
+  }, [doc.layers, layersSV, tileH]);
   useEffect(() => {
     selectedSV.set(selectedId);
     selectionSV.set(selectedIds);
@@ -310,7 +325,7 @@ export function EditorCanvas({
 
   const toDoc = (sx: number, sy: number) => {
     'worklet';
-    return { x: (sx - PAD_X + scrollX.get()) / vs, y: (sy - offsetY) / vs };
+    return { x: (sx - offsetX + scrollX.get()) / vs, y: (sy - offsetY) / vs };
   };
 
   const begin = (id: string) => {
@@ -408,7 +423,7 @@ export function EditorCanvas({
         bottom: next.cy + (bottom - next.cy) * next.scale + next.dy,
       };
       const others = all.filter((l) => !members.includes(l.id) && !l.hidden).map((l) => l.box);
-      const snap = snapSV.get() ? snapBox(box, others, slideCount, H, threshold) : NO_SNAP;
+      const snap = snapSV.get() ? snapBox(box, others, slideCount, tileH, rows, threshold) : NO_SNAP;
       if ((snap.gx !== -1 && snap.gx !== guideX.get()) || (snap.gy !== -1 && snap.gy !== guideY.get())) {
         scheduleOnRN(tick);
       }
@@ -435,7 +450,7 @@ export function EditorCanvas({
     const g = all.find((l) => l.id === id)!;
     const others = all.filter((l) => l.id !== id && !l.hidden).map((l) => l.box);
     const snap = snapSV.get()
-      ? snapBox(boxAt(g.w, g.h, { ...next, rotation }), others, slideCount, H, threshold)
+      ? snapBox(boxAt(g.w, g.h, { ...next, rotation }), others, slideCount, tileH, rows, threshold)
       : NO_SNAP;
 
     if ((snap.gx !== -1 && snap.gx !== guideX.get()) || (snap.gy !== -1 && snap.gy !== guideY.get())) {
@@ -667,7 +682,7 @@ export function EditorCanvas({
   );
 
   const viewTransform = useDerivedValue<Transforms3d>(() => [
-    { translateX: PAD_X - scrollX.get() },
+    { translateX: offsetX - scrollX.get() },
     { translateY: offsetY },
     { scale: vs },
   ]);
@@ -699,6 +714,8 @@ export function EditorCanvas({
   const guideYOpacity = useDerivedValue(() => (guideY.get() < 0 ? 0 : 1));
 
   const seams = Array.from({ length: slideCount - 1 }, (_, i) => (i + 1) * SLIDE_WIDTH);
+  // A grid puzzle also splits into rows: each tile is a separate post.
+  const rowSeams = Array.from({ length: rows - 1 }, (_, i) => (i + 1) * tileH);
   const warnings = seamWarnings(doc.layers, seams);
   const cropping = cropId != null && cropId === selectedId && selected?.type === 'photo';
   const dropLayer = dropId ? doc.layers.find((l) => l.id === dropId) : null;
@@ -736,6 +753,12 @@ export function EditorCanvas({
               color="#FFFFFFAA"
               strokeWidth={1.5 / vs}
               style="stroke">
+              <DashPathEffect intervals={[12 / vs, 8 / vs]} />
+            </Line>
+          ))}
+
+          {rowSeams.map((y) => (
+            <Line key={`row${y}`} p1={vec(0, y)} p2={vec(W, y)} color="#FFFFFFAA" strokeWidth={1.5 / vs} style="stroke">
               <DashPathEffect intervals={[12 / vs, 8 / vs]} />
             </Line>
           ))}

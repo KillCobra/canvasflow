@@ -5,7 +5,7 @@ import { router } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { type BrandLogo, brandLogoUri, useBrandLogos } from '@/lib/brand';
+import { type BrandImage, brandAssetUri, brandLogoUri, useBrandAssets, useBrandLogos } from '@/lib/brand';
 import type { ImageMap } from '@/lib/images';
 import {
   GRIDS,
@@ -19,7 +19,7 @@ import {
 } from '@/lib/layouts';
 import { useEditor } from '@/lib/store';
 import { TEXTURES, textureBackground } from '@/lib/textures';
-import { ASPECTS, type Background, type Doc, type PhotoLayer, SLIDE_WIDTH } from '@/lib/types';
+import { ASPECTS, type Background, type Doc, MAX_GRID_ROWS, type PhotoLayer, SLIDE_WIDTH } from '@/lib/types';
 import { C, GRADIENTS, PALETTE, R, T } from '@/theme';
 
 import { BrandColors } from './brand-colors';
@@ -390,10 +390,12 @@ export function ElementsPanel({
   onAddShape: (shape: 'rect' | 'circle' | 'line') => void;
   onAddSticker: (emoji: string) => void;
   onAddGrid: (id: GridId) => void;
-  onAddLogo: (logo: BrandLogo) => void;
+  /** A brand-kit logo or brand image. */
+  onAddLogo: (image: BrandImage, kind: 'logo' | 'asset') => void;
   onClose: () => void;
 }) {
   const logos = useBrandLogos();
+  const assets = useBrandAssets();
   // Grid glyphs take the project's slide shape.
   const slideH = useEditor((s) => ASPECTS[s.doc!.aspect].height);
   const glyphH = Math.min(44, (30 * slideH) / SLIDE_WIDTH);
@@ -435,23 +437,29 @@ export function ElementsPanel({
         ))}
       </HScroll>
       <HScroll gap={4}>
-        {/* Brand-kit logos come first; with none yet, a shortcut to add one. */}
-        {logos.map((l) => (
-          <Pressable
-            key={l.id}
-            accessibilityRole="button"
-            accessibilityLabel="Add brand logo"
-            onPress={() => {
-              Haptics.selectionAsync();
-              onAddLogo(l);
-            }}
-            style={({ pressed }) => [styles.logo, { opacity: pressed ? 0.6 : 1 }]}>
-            <Image source={{ uri: brandLogoUri(l) }} style={styles.logoImage} contentFit="contain" />
-          </Pressable>
-        ))}
+        {/* Brand-kit logos and images come first; with none yet, a shortcut to add some. */}
+        {[...logos.map((l) => ({ item: l, kind: 'logo' as const })), ...assets.map((a) => ({ item: a, kind: 'asset' as const }))].map(
+          ({ item, kind }) => (
+            <Pressable
+              key={item.id}
+              accessibilityRole="button"
+              accessibilityLabel={kind === 'logo' ? 'Add brand logo' : 'Add brand image'}
+              onPress={() => {
+                Haptics.selectionAsync();
+                onAddLogo(item, kind);
+              }}
+              style={({ pressed }) => [styles.logo, { opacity: pressed ? 0.6 : 1 }]}>
+              <Image
+                source={{ uri: kind === 'logo' ? brandLogoUri(item) : brandAssetUri(item) }}
+                style={item.alpha === false ? StyleSheet.absoluteFill : styles.logoImage}
+                contentFit={item.alpha === false ? 'cover' : 'contain'}
+              />
+            </Pressable>
+          ),
+        )}
         <ToolButton
           icon={{ ios: 'paintpalette', android: 'palette' }}
-          label={logos.length ? 'Kit' : 'Logo'}
+          label={logos.length || assets.length ? 'Kit' : 'Logo'}
           onPress={() => router.push('/brand-kit')}
         />
         <View style={styles.vDivider} />
@@ -469,7 +477,45 @@ export function ElementsPanel({
   );
 }
 
+/** Rows of a grid puzzle: each row is three posts on the profile. */
+export function GridRowsPanel({ onClose }: { onClose: () => void }) {
+  const rows = useEditor((s) => s.doc!.grid ?? 1);
+  const setRows = useEditor((s) => s.setGridRows);
+  const change = (n: number) => {
+    Haptics.selectionAsync();
+    setRows(n);
+  };
+  return (
+    <View style={styles.panel}>
+      <PanelHeader title="Grid" onClose={onClose} />
+      <View style={styles.rowsLine}>
+        <IconButton label="Fewer rows" tone="filled" icon={{ ios: 'minus', android: 'remove' }} disabled={rows <= 1} onPress={() => change(rows - 1)} />
+        <View style={{ alignItems: 'center', flex: 1 }}>
+          <Text style={styles.rowsValue}>
+            {rows} {rows === 1 ? 'row' : 'rows'}
+          </Text>
+          <Text style={styles.layoutHint}>
+            {rows * 3} posts · 3 × {rows}
+          </Text>
+        </View>
+        <IconButton
+          label="More rows"
+          tone="filled"
+          icon={{ ios: 'plus', android: 'add' }}
+          disabled={rows >= MAX_GRID_ROWS}
+          onPress={() => change(rows + 1)}
+        />
+      </View>
+      <Text style={[styles.layoutHint, { paddingHorizontal: 4 }]}>
+        Each tile is its own post. Export numbers them in posting order: last tile first, so the picture lines up on your profile.
+      </Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
+  rowsLine: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 4 },
+  rowsValue: { ...T.display, fontSize: 26 },
   panel: { minHeight: PANEL_HEIGHT, gap: 6, paddingBottom: 4 },
   panelHeader: {
     flexDirection: 'row',

@@ -17,7 +17,7 @@ import { isCardFrame, layersOnSlide as onSlide, photoImageRect } from './geometr
 import { type ImageMap, loadFullImage, preloadImages } from './images';
 import { assetUri, writeThumb } from './projects';
 import { exportFormat, recordExport } from './settings';
-import { type Doc, type Layer, type PhotoLayer, SLIDE_WIDTH, canvasSize } from './types';
+import { type Doc, type Layer, type PhotoLayer, SLIDE_WIDTH, canvasSize, isGrid, tileCount, tileRect } from './types';
 
 /** Layers drawn on slide `index`; empty template slots never make it into an export. */
 const layersOnSlide = (layers: Layer[], index: number) =>
@@ -40,17 +40,34 @@ export function renderSlide(doc: Doc, images: ImageMap, index: number, outWidth 
   );
 }
 
+/** Layers that make it into an export: visible, and no empty template slots. */
+const exportLayers = (doc: Doc) => doc.layers.filter((l) => !l.hidden && (l.type !== 'photo' || !!l.src));
+
+/** One tile of a grid puzzle (reading order), offscreen, at `outWidth` px wide. */
+export function renderTile(doc: Doc, images: ImageMap, index: number, outWidth = SLIDE_WIDTH) {
+  const t = tileRect(doc, index);
+  const k = outWidth / SLIDE_WIDTH;
+  return drawAsImage(
+    <Group transform={[{ scale: k }, { translateX: -t.x }, { translateY: -t.y }]}>
+      <DocRenderer doc={doc} images={images} layers={exportLayers(doc)} />
+    </Group>,
+    { width: Math.round(outWidth), height: Math.round(t.height * k) },
+  );
+}
+
+/**
+ * Posting order for a grid puzzle: Instagram puts the newest post first, so
+ * the last tile (bottom right) goes up first and the first tile last.
+ */
+export const postingOrder = (doc: Doc) => Array.from({ length: tileCount(doc) }, (_, k) => tileCount(doc) - 1 - k);
+
 /** The whole canvas as one wide image, capped to a sane texture size. */
-function renderStrip(doc: Doc, images: ImageMap) {
+function renderStrip(doc: Doc, images: ImageMap, maxWidth = 8000) {
   const { width, height } = canvasSize(doc);
-  const k = Math.min(1, 8000 / width);
+  const k = Math.min(1, maxWidth / width, 8000 / height);
   return drawAsImage(
     <Group transform={[{ scale: k }]}>
-      <DocRenderer
-        doc={doc}
-        images={images}
-        layers={doc.layers.filter((l) => !l.hidden && (l.type !== 'photo' || !!l.src))}
-      />
+      <DocRenderer doc={doc} images={images} layers={exportLayers(doc)} />
     </Group>,
     { width: Math.round(width * k), height: Math.round(height * k) },
   );
@@ -118,7 +135,7 @@ class FullImages {
  * swipe: a video panning across the slides at the post's size.
  * reel: the same pan inside a 9:16 frame for Reels/TikTok.
  */
-export type ExportMode = 'slides' | 'strip' | 'swipe' | 'reel';
+export type ExportMode = 'slides' | 'strip' | 'swipe' | 'reel' | 'grid';
 
 export type ExportProgress = {
   /** Slides finished, plus the fraction of the current one (0..total). */
@@ -165,6 +182,31 @@ export async function exportToPhotos(
     }
     recordExport(1);
     return { saved: 1, videos: 1, stills: 0 };
+  }
+
+  if (mode === 'grid') {
+    // One file per tile, saved in posting order so the Photos library lists them that way.
+    const order = postingOrder(doc);
+    const total = order.length;
+    const full = new FullImages(doc.id, [doc.layers]);
+    try {
+      const images = await full.forSlide(doc.layers);
+      for (let k = 0; k < total; k++) {
+        onProgress?.({ done: k, total, current: k + 1, video: false, label: `Saving post ${k + 1} of ${total}` });
+        const image = await renderTile(doc, images, order[k]);
+        if (!image) throw new Error(`Could not render post ${k + 1}.`);
+        const file = writeExport(image, Paths.cache, `seam-${stamp}-post-${String(k + 1).padStart(2, '0')}`);
+        image.dispose();
+        await Asset.create(file.uri);
+        file.delete();
+        await nextFrame();
+      }
+    } finally {
+      full.releaseAll();
+    }
+    onProgress?.({ done: total, total, current: total, video: false });
+    recordExport(total);
+    return { saved: total, videos: 0, stills: doc.layers.some(isVideoLayer) ? total : 0 };
   }
 
   if (mode === 'strip') {
@@ -509,7 +551,8 @@ function solidHex(doc: Doc) {
 
 export async function updateThumbnail(doc: Doc) {
   const images = await preloadImages(doc.id, doc.layers);
-  const image = await renderSlide(doc, images, 0, 360);
+  // A grid puzzle's thumbnail is the whole grid, sharp enough to cut into tiles for the planner.
+  const image = isGrid(doc) ? await renderStrip(doc, images, 1080) : await renderSlide(doc, images, 0, 360);
   if (image) {
     writeThumb(doc.id, image.encodeToBytes(ImageFormat.JPEG, 80));
     image.dispose();

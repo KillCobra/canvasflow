@@ -33,7 +33,19 @@ export type SceneId =
   | 'hiker'
   | 'traveler'
   | 'berries'
-  | 'camera';
+  | 'camera'
+  | 'strawberries'
+  | 'cake'
+  | 'tea'
+  | 'pourover'
+  | 'cabin'
+  | 'room'
+  | 'cafe'
+  | 'vinyl'
+  | 'stage'
+  | 'knit'
+  | 'heels'
+  | 'book';
 
 /** Tall fills portrait and square slots, land the landscape ones, wide the panoramas. */
 type Variant = 'tall' | 'land' | 'wide';
@@ -44,7 +56,7 @@ const SIZES: Record<Variant, { width: number; height: number }> = {
   wide: { width: 1280, height: 512 },
 };
 
-/** One 1280px photo per scene, in assets/samples (see Acknowledgements for credits). */
+/** One 1280px photo per scene, in assets/samples (credits in credits.ts). */
 export const PHOTOS: Record<SceneId, number> = {
   sunset: require('../../assets/samples/sunset.jpg'),
   ocean: require('../../assets/samples/ocean.jpg'),
@@ -66,6 +78,18 @@ export const PHOTOS: Record<SceneId, number> = {
   traveler: require('../../assets/samples/traveler.jpg'),
   berries: require('../../assets/samples/berries.jpg'),
   camera: require('../../assets/samples/camera.jpg'),
+  strawberries: require('../../assets/samples/strawberries.jpg'),
+  cake: require('../../assets/samples/cake.jpg'),
+  tea: require('../../assets/samples/tea.jpg'),
+  pourover: require('../../assets/samples/pourover.jpg'),
+  cabin: require('../../assets/samples/cabin.jpg'),
+  room: require('../../assets/samples/room.jpg'),
+  cafe: require('../../assets/samples/cafe.jpg'),
+  vinyl: require('../../assets/samples/vinyl.jpg'),
+  stage: require('../../assets/samples/stage.jpg'),
+  knit: require('../../assets/samples/knit.jpg'),
+  heels: require('../../assets/samples/heels.jpg'),
+  book: require('../../assets/samples/book.jpg'),
 };
 
 export const SCENE_IDS = Object.keys(PHOTOS) as SceneId[];
@@ -201,14 +225,17 @@ function sampleKeys(doc: Doc) {
 
 /** Scenes that suit each kind of template; anything else draws from all of them. */
 const POOLS: Record<string, SceneId[]> = {
-  travel: ['traveler', 'lake', 'palms', 'hiker', 'street', 'ocean', 'peaks', 'skyline'],
+  travel: ['traveler', 'lake', 'palms', 'hiker', 'street', 'ocean', 'peaks', 'skyline', 'cabin'],
   panorama: ['peaks', 'sunset', 'ocean', 'dunes', 'lake', 'stars', 'forest'],
-  'photo dump': ['friends', 'berries', 'camera', 'concert', 'stilllife', 'summer', 'bokeh', 'street', 'lake'],
-  editorial: ['portrait', 'stilllife', 'camera', 'summer', 'dunes', 'forest'],
-  business: ['stilllife', 'camera', 'street', 'skyline', 'berries', 'portrait'],
-  minimal: ['dunes', 'palms', 'ocean', 'hiker', 'stilllife', 'forest'],
+  'photo dump': ['friends', 'berries', 'camera', 'concert', 'stilllife', 'summer', 'bokeh', 'street', 'cafe', 'strawberries'],
+  editorial: ['portrait', 'stilllife', 'camera', 'summer', 'dunes', 'room', 'book', 'knit'],
+  business: ['stilllife', 'camera', 'street', 'room', 'cafe', 'skyline', 'pourover', 'portrait'],
+  minimal: ['dunes', 'room', 'palms', 'ocean', 'hiker', 'stilllife', 'forest'],
   story: ['summer', 'portrait', 'traveler', 'skyline', 'concert', 'lake'],
-  events: ['concert', 'friends', 'bokeh', 'portrait', 'berries', 'summer'],
+  events: ['concert', 'stage', 'friends', 'bokeh', 'portrait', 'cake', 'summer'],
+  food: ['strawberries', 'cake', 'tea', 'pourover', 'berries', 'stilllife', 'cafe'],
+  music: ['vinyl', 'stage', 'concert', 'bokeh', 'friends', 'street'],
+  fashion: ['knit', 'heels', 'portrait', 'summer', 'street', 'traveler'],
 };
 
 function hash(s: string) {
@@ -235,7 +262,9 @@ export function fillWithSamples(doc: Doc, t: Pick<Template, 'id' | 'category' | 
   const own = poolFor(t);
   // Busy layouts borrow from the other scenes before repeating any.
   const pool = slots > own.length ? [...own, ...SCENE_IDS.filter((s) => !own.includes(s))] : own;
-  const start = hash(t.id) % pool.length;
+  // A template's own list fills its slots in order; category pools start at a
+  // place picked by the id, so neighbouring thumbnails don't all match.
+  const start = t.samples?.some(isScene) ? 0 : hash(t.id) % pool.length;
   let n = 0;
   const layers = doc.layers.map((l) => {
     if (l.type !== 'photo' || l.src) return l;

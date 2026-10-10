@@ -128,6 +128,12 @@ export default function ProfileScreen() {
             onPress={() => router.push('/whats-new')}
           />
           <Row
+            icon={{ ios: 'square.grid.3x3', android: 'grid_on' }}
+            title="Grid planner"
+            detail="See your next posts on your profile"
+            onPress={() => router.push('/grid')}
+          />
+          <Row
             icon={{ ios: 'heart', android: 'favorite' }}
             title="Favorite templates"
             value={String(favorites.length)}

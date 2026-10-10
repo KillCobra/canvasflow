@@ -9,6 +9,8 @@ import { layersOnSlide } from '@/lib/geometry';
 import { saveProject } from '@/lib/projects';
 import { useSamplePreview } from '@/lib/samples';
 import { type Template, instantiate, templateHeight } from '@/lib/templates';
+import { brandColors, brandFonts, brandProfile } from '@/lib/brand';
+import { applyBrand } from '@/lib/brand-apply';
 import { SLIDE_WIDTH } from '@/lib/types';
 import { C, R, T } from '@/theme';
 
@@ -84,8 +86,12 @@ export function TemplateSlide({ template, index, width }: { template: Template; 
  * Creates a project from the template and opens it. The project gets the
  * template's empty slots, never the preview's sample photos.
  */
-export function startFromTemplate(template: Template, { replace = false } = {}) {
-  const doc = instantiate(template);
+export function startFromTemplate(template: Template, { replace = false, brand = false } = {}) {
+  const plain = instantiate(template);
+  // "With my brand": the template recoloured and retyped with the brand kit (look 1).
+  const doc = brand
+    ? applyBrand(plain, { colors: brandColors(), fonts: brandFonts(), profile: brandProfile() }, { colors: true, fonts: true, details: true, variant: 0 }).doc
+    : plain;
   saveProject(doc, { create: true });
   if (replace) router.replace(`/editor/${doc.id}`);
   else router.push(`/editor/${doc.id}`);

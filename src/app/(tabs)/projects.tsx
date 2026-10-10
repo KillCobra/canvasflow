@@ -148,6 +148,7 @@ export default function ProjectsScreen() {
               onPress={() => folderActions(folder)}
             />
           )}
+          <IconButton label="Grid planner" tone="filled" icon={{ ios: 'square.grid.3x3', android: 'grid_on' }} onPress={() => router.push('/grid')} />
           <IconButton label="Sort" tone="filled" icon={{ ios: 'arrow.up.arrow.down', android: 'sort' }} onPress={chooseSort} />
         </View>
       </View>

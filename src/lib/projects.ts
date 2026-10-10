@@ -4,7 +4,7 @@ import { getThumbnailAsync } from 'expo-video-thumbnails';
 
 import { type NormRect, detectFaces, isVisionAvailable, liftSubject } from '../../modules/seam-vision';
 
-import { type AspectId, type Doc, uid } from './types';
+import { type AspectId, type Doc, GRID_ASPECT, GRID_COLUMNS, MAX_GRID_ROWS, uid } from './types';
 
 // Each project lives in documents/projects/<id>/ with doc.json, its imported
 // photos (full size for export plus a small preview copy for editing) and a
@@ -68,6 +68,11 @@ export function createDoc(aspect: AspectId, slideCount = 3): Doc {
     createdAt: now,
     updatedAt: now,
   };
+}
+
+/** A new Instagram grid puzzle: `rows` rows of three 3:4 tiles. */
+export function createGridDoc(rows = 2): Doc {
+  return { ...createDoc(GRID_ASPECT, GRID_COLUMNS), name: 'Grid puzzle', grid: Math.max(1, Math.min(MAX_GRID_ROWS, rows)) };
 }
 
 /** Writes to a temp file and swaps it in, so a crash mid-write can't corrupt the project. */
@@ -206,7 +211,7 @@ export async function importCutout(docId: string, src: string) {
  */
 export async function importBrandLogo(docId: string, uri: string) {
   const dir = projectDir(docId, true);
-  const name = `${uid()}.png`;
+  const name = `${uid()}.${/\.jpe?g$/i.test(uri) ? 'jpg' : 'png'}`;
   await new File(uri).copy(new File(dir, name));
   await new File(uri).copy(new File(dir, previewName(name)));
   return name;

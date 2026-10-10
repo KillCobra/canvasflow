@@ -167,6 +167,11 @@ export type Doc = {
   updatedAt: number;
   /** Home screen folder id (see projects.ts); unset = not in a folder. */
   folder?: string;
+  /**
+   * An Instagram grid puzzle: this many rows of `slideCount` (3) tiles,
+   * stacked into one tall canvas. Unset for a normal carousel.
+   */
+  grid?: number;
 };
 
 export type BuiltinFontId =
@@ -203,8 +208,26 @@ export const FONTS: Record<BuiltinFontId, { label: string; family: string; rn: s
   condensed: { label: 'Poster', family: 'Bebas Neue', rn: 'BebasNeue_400Regular', weight: 400 },
 };
 
-export function canvasSize(doc: Pick<Doc, 'aspect' | 'slideCount'>) {
-  return { width: SLIDE_WIDTH * doc.slideCount, height: ASPECTS[doc.aspect].height };
+export function canvasSize(doc: Pick<Doc, 'aspect' | 'slideCount' | 'grid'>) {
+  return { width: SLIDE_WIDTH * doc.slideCount, height: ASPECTS[doc.aspect].height * (doc.grid ?? 1) };
+}
+
+/** Grid puzzles: 3 columns of 3:4 tiles, matching Instagram's profile grid. */
+export const GRID_COLUMNS = 3;
+export const GRID_ASPECT: AspectId = '3:4';
+export const MAX_GRID_ROWS = 4;
+
+export const isGrid = (doc: Pick<Doc, 'grid'>) => doc.grid != null;
+
+/** Tiles in a grid puzzle (or slides in a carousel). */
+export const tileCount = (doc: Pick<Doc, 'slideCount' | 'grid'>) => doc.slideCount * (doc.grid ?? 1);
+
+/** Canvas rect of tile `i` in reading order (left to right, top to bottom). */
+export function tileRect(doc: Pick<Doc, 'aspect' | 'slideCount'>, i: number) {
+  const h = ASPECTS[doc.aspect].height;
+  const col = i % doc.slideCount;
+  const row = Math.floor(i / doc.slideCount);
+  return { x: col * SLIDE_WIDTH, y: row * h, width: SLIDE_WIDTH, height: h, row, col };
 }
 
 export function uid() {

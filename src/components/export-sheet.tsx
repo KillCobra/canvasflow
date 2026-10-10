@@ -25,7 +25,7 @@ import {
 import { layersOnSlide } from '@/lib/geometry';
 import { useSkImages } from '@/lib/images';
 import { templateLink } from '@/lib/template-link';
-import { ASPECTS, type Doc, SLIDE_WIDTH } from '@/lib/types';
+import { ASPECTS, type Doc, SLIDE_WIDTH, canvasSize, isGrid, tileCount, tileRect } from '@/lib/types';
 import { C, R, T } from '@/theme';
 
 import { isVideoExportAvailable } from '../../modules/seam-video-export';
@@ -71,7 +71,8 @@ export function ExportSheet({ doc, onClose }: { doc: Doc; onClose: () => void })
   const H = ASPECTS[doc.aspect].height;
   const videoSlides = videoSlideSet(doc);
   const canEncode = isVideoExportAvailable();
-  const canSwipe = canEncode && doc.slideCount >= 2;
+  const grid = isGrid(doc);
+  const canSwipe = canEncode && doc.slideCount >= 2 && !grid;
   const slide = Math.min(page, doc.slideCount - 1);
 
   const fail = (e: unknown) => {
@@ -81,7 +82,7 @@ export function ExportSheet({ doc, onClose }: { doc: Doc; onClose: () => void })
 
   /** Saves to Photos, then (for the app buttons) opens the app on its library. */
   const save = async (mode: ExportMode, app?: App) => {
-    const total = mode === 'slides' ? doc.slideCount : 1;
+    const total = mode === 'slides' ? doc.slideCount : mode === 'grid' ? tileCount(doc) : 1;
     setState({ step: 'saving', progress: { done: 0, total, current: 1, video: false } });
     try {
       const result = await exportToPhotos(doc, mode, (progress) => setState({ step: 'saving', progress }));
@@ -142,15 +143,50 @@ export function ExportSheet({ doc, onClose }: { doc: Doc; onClose: () => void })
                 </Pressable>
               ) : (
                 <Text style={styles.meta}>
-                  {doc.slideCount} slides · {SLIDE_WIDTH}×{H}
+                  {grid ? `3 × ${doc.grid} grid` : `${doc.slideCount} slides`} · {SLIDE_WIDTH}×{H}
                 </Text>
               )}
             </View>
-            <SlidePager doc={doc} page={slide} onPage={setPage} />
+            {grid ? <GridPreview doc={doc} /> : <SlidePager doc={doc} page={slide} onPage={setPage} />}
           </View>
         )}
 
-        {state.step === 'choose' && (
+        {state.step === 'choose' && grid && (
+          <View style={{ gap: 14 }}>
+            <View style={styles.quickRow}>
+              <QuickAction icon={{ ios: 'square.and.arrow.down', android: 'download' }} label="Save" primary onPress={() => save('grid')} />
+              <QuickAction icon={{ ios: 'camera', android: 'photo_camera' }} label="Instagram" onPress={() => save('grid', 'instagram')} />
+              <QuickAction
+                icon={{ ios: 'square.and.arrow.up', android: 'ios_share' }}
+                label="Share…"
+                onPress={() => share({ kind: 'strip' })}
+              />
+              <QuickAction icon={{ ios: 'link', android: 'link' }} label="Template" onPress={shareTemplate} />
+            </View>
+            <Eyebrow style={{ paddingHorizontal: 2 }}>Save as</Eyebrow>
+            <View style={styles.pair}>
+              <Option
+                compact
+                icon={{ ios: 'square.grid.3x3', android: 'grid_on' }}
+                title="Grid posts"
+                detail={`${tileCount(doc)} posts, in order`}
+                onPress={() => save('grid')}
+              />
+              <Option
+                compact
+                icon={{ ios: 'photo', android: 'image' }}
+                title="Full picture"
+                detail="One image"
+                onPress={() => save('strip')}
+              />
+            </View>
+            <Text style={styles.note}>
+              Post them one at a time, starting with number 1 (the bottom-right tile), and the picture lines up on your profile.
+            </Text>
+          </View>
+        )}
+
+        {state.step === 'choose' && !grid && (
           <View style={{ gap: 14 }}>
             <View style={styles.quickRow}>
               <QuickAction
@@ -293,6 +329,7 @@ export function ExportSheet({ doc, onClose }: { doc: Doc; onClose: () => void })
 }
 
 function nextStep(mode: ExportMode, app: App) {
+  if (mode === 'grid') return app === 'instagram' ? 'Post 1 first, one at a time' : 'Post them in order';
   if (mode === 'reel') return app === 'instagram' ? 'Post as a Reel' : 'Post the video';
   if (mode === 'swipe') return 'Post the video';
   return app === 'instagram' ? 'Pick them in order' : 'Post as photos';
@@ -316,6 +353,48 @@ function videoSlideSet(doc: Doc) {
     for (let i = a; i <= b; i++) slides.add(i);
   }
   return slides;
+}
+
+/**
+ * A grid puzzle as it will sit on the profile: the whole picture split into
+ * tiles with the profile's thin gaps, each numbered in posting order.
+ */
+function GridPreview({ doc }: { doc: Doc }) {
+  const { width: screenW } = useWindowDimensions();
+  const images = useSkImages(doc.id, doc.layers);
+  const { width: W, height: CH } = canvasSize(doc);
+  const k = Math.min((screenW - 36) / W, 300 / CH);
+  const total = tileCount(doc);
+  const gap = 3;
+  return (
+    <View style={{ alignItems: 'center' }}>
+      <View style={{ width: W * k, height: CH * k }}>
+        <Canvas style={StyleSheet.absoluteFill}>
+          <Group transform={[{ scale: k }]}>
+            <DocRenderer doc={doc} images={images} layers={doc.layers.filter((l) => !l.hidden && (l.type !== 'photo' || !!l.src))} />
+          </Group>
+        </Canvas>
+        {/* Profile gaps between tiles. */}
+        {Array.from({ length: doc.slideCount - 1 }, (_, i) => (
+          <View key={`c${i}`} style={[styles.gridGap, { left: (i + 1) * SLIDE_WIDTH * k - gap / 2, top: 0, bottom: 0, width: gap }]} />
+        ))}
+        {Array.from({ length: (doc.grid ?? 1) - 1 }, (_, i) => (
+          <View
+            key={`r${i}`}
+            style={[styles.gridGap, { top: (i + 1) * tileRect(doc, 0).height * k - gap / 2, left: 0, right: 0, height: gap }]}
+          />
+        ))}
+        {Array.from({ length: total }, (_, i) => {
+          const t = tileRect(doc, i);
+          return (
+            <View key={i} style={[styles.postBadge, { left: t.x * k + 6, top: t.y * k + 6 }]}>
+              <Text style={styles.postBadgeText}>{total - i}</Text>
+            </View>
+          );
+        })}
+      </View>
+    </View>
+  );
 }
 
 const PAGE_GAP = 12;
@@ -498,6 +577,18 @@ function Option({
 
 const styles = StyleSheet.create({
   backdrop: { backgroundColor: '#000000A6', zIndex: 20 },
+  gridGap: { position: 'absolute', backgroundColor: C.surface },
+  postBadge: {
+    position: 'absolute',
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    paddingHorizontal: 5,
+    backgroundColor: '#000000B3',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  postBadgeText: { ...T.semibold, color: '#FFFFFF', fontSize: 11, fontVariant: ['tabular-nums'] },
   sheet: {
     backgroundColor: C.surface,
     borderTopLeftRadius: 30,

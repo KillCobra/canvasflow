@@ -55,6 +55,7 @@ export default function RootLayout() {
           <Stack.Screen name="brand-kit" />
           <Stack.Screen name="whats-new" />
           <Stack.Screen name="settings" />
+          <Stack.Screen name="grid" />
           <Stack.Screen name="acknowledgements/index" />
           <Stack.Screen name="acknowledgements/software" />
           <Stack.Screen name="acknowledgements/licence" />

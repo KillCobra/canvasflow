@@ -28,6 +28,18 @@ export const PHOTO_CREDITS: PhotoCredit[] = [
   { scene: 'traveler', title: 'Traveller', author: 'Danielle MacInnes', url: 'https://unsplash.com/photos/1DkWWN1dr-s', picsum: 1001 },
   { scene: 'berries', title: 'Berries', author: 'Glen Carrie', url: 'https://unsplash.com/photos/FjjUVn_KHLU', picsum: 429 },
   { scene: 'camera', title: 'Camera', author: 'Mia Domenico', url: 'https://unsplash.com/photos/1z1F5Qc30Bs', picsum: 454 },
+  { scene: 'strawberries', title: 'Strawberries', author: 'veeterzy', url: 'https://unsplash.com/photos/OJJIaFZOeX4', picsum: 1080 },
+  { scene: 'cake', title: 'Cake', author: 'Annie Spratt', url: 'https://unsplash.com/photos/R3LcfTvcGWY', picsum: 999 },
+  { scene: 'tea', title: 'Tea', author: 'Vee O', url: 'https://unsplash.com/photos/hGO27G5tZJ8', picsum: 225 },
+  { scene: 'pourover', title: 'Pour-over', author: 'Karl Fredrickson', url: 'https://unsplash.com/photos/TYIzeCiZ_60', picsum: 1060 },
+  { scene: 'cabin', title: 'Cabin', author: 'Alexander Shustov', url: 'https://unsplash.com/photos/OxzhYtL-00Y', picsum: 76 },
+  { scene: 'room', title: 'Blue room', author: 'Padurariu Alexandru', url: 'https://unsplash.com/photos/iNmouRApXYM', picsum: 1068 },
+  { scene: 'cafe', title: 'Café', author: 'Luke Chesser', url: 'https://unsplash.com/photos/KR2mdHJ5qMg', picsum: 42 },
+  { scene: 'vinyl', title: 'Turntable', author: 'Luke Chesser', url: 'https://unsplash.com/photos/pFqrYbhIAXs', picsum: 39 },
+  { scene: 'stage', title: 'Stage lights', author: 'Daniel Robert', url: 'https://unsplash.com/photos/MRxD-J9-4ps', picsum: 158 },
+  { scene: 'knit', title: 'Knitwear', author: 'Jennifer Trovato', url: 'https://unsplash.com/photos/baRYCsjO6z4', picsum: 91 },
+  { scene: 'heels', title: 'Heels', author: 'Alejandro Escamilla', url: 'https://unsplash.com/photos/jVb0mSn0LbE', picsum: 21 },
+  { scene: 'book', title: 'Open book', author: 'Alejandro Escamilla', url: 'https://unsplash.com/photos/cZhUxIQjILg', picsum: 24 },
 ];
 
 export const UNSPLASH_LICENSE = 'https://unsplash.com/license';

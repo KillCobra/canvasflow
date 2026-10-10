@@ -15,7 +15,8 @@ import Animated, {
 } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
 
-import { createDoc, listFolders, saveProject } from '@/lib/projects';
+import { addToPlan } from '@/lib/grid-plan';
+import { createDoc, createGridDoc, listFolders, saveProject } from '@/lib/projects';
 import { defaultAspect, defaultSlides } from '@/lib/settings';
 import { ASPECTS, type AspectId, SLIDE_WIDTH } from '@/lib/types';
 import { C, T } from '@/theme';
@@ -26,13 +27,14 @@ import { Glass, Icon } from './ui';
 // "Deal a carousel": the + fans out a hand of blank slides, one per shape,
 // with the same horizon running across them. Tap a slide to start.
 
-type Card = { kind: 'format'; aspect: AspectId; name: string } | { kind: 'templates' };
+type Card = { kind: 'format'; aspect: AspectId; name: string } | { kind: 'grid' } | { kind: 'templates' };
 
 const CARDS: Card[] = [
   { kind: 'format', aspect: '1:1', name: 'Square' },
   { kind: 'format', aspect: '4:5', name: 'Portrait' },
   { kind: 'format', aspect: '9:16', name: 'Story' },
   { kind: 'format', aspect: '3:4', name: 'Tall' },
+  { kind: 'grid' },
   { kind: 'templates' },
 ];
 const MID = (CARDS.length - 1) / 2;
@@ -104,6 +106,17 @@ export function NewCarouselFan({
     router.push(`/editor/${doc.id}`);
   };
 
+  /** A grid puzzle (two rows to start), queued on the grid planner. */
+  const createGrid = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    const doc = createGridDoc(2);
+    if (folderName) doc.folder = folder!;
+    saveProject(doc, { create: true });
+    addToPlan(doc.id);
+    onClose();
+    router.push(`/editor/${doc.id}`);
+  };
+
   const change = (d: number) => {
     const next = Math.max(1, Math.min(10, slides + d));
     if (next !== slides) Haptics.selectionAsync();
@@ -138,7 +151,7 @@ export function NewCarouselFan({
 
       {CARDS.map((card, i) => {
         const offset = i - MID;
-        const h = card.kind === 'format' ? cardW * (ASPECTS[card.aspect].height / SLIDE_WIDTH) : cardW * 1.25;
+        const h = card.kind === 'format' ? cardW * (ASPECTS[card.aspect].height / SLIDE_WIDTH) : cardW * (card.kind === 'grid' ? 1.1 : 1.25);
         const cx = screenW / 2 + offset * step;
         return (
           <DealtCard
@@ -146,25 +159,36 @@ export function NewCarouselFan({
             index={i}
             progress={progress}
             x={cx - cardW / 2}
-            y={baseline - h + offset * offset * 9}
+            y={baseline - h + offset * offset * 6}
             w={cardW}
             h={h}
-            rotate={offset * 7}
+            rotate={offset * 5.5}
             from={{ x: origin.x - cx, y: origin.y - (baseline - h / 2) }}
             onPress={() => {
               if (card.kind === 'templates') {
                 Haptics.selectionAsync();
                 onClose();
                 router.push('/templates');
-              } else create(card.aspect);
+              } else if (card.kind === 'grid') createGrid();
+              else create(card.aspect);
             }}
-            label={card.kind === 'format' ? `New ${card.name} ${card.aspect} carousel` : 'Start from a template'}>
+            label={
+              card.kind === 'format'
+                ? `New ${card.name} ${card.aspect} carousel`
+                : card.kind === 'grid'
+                  ? 'New grid puzzle for your profile'
+                  : 'Start from a template'
+            }>
             {card.kind === 'format' ? (
               <BlankSlide aspect={card.aspect} name={card.name} w={cardW} h={h} seamX={cx - cardW / 2} preferred={card.aspect === preferred} />
+            ) : card.kind === 'grid' ? (
+              <GridCard w={cardW} h={h} />
             ) : (
               <View style={[styles.card, styles.templates, { width: cardW, height: h }]}>
                 <BrandMark width={cardW * 0.62} />
-                <Text style={styles.templatesText}>Templates</Text>
+                <Text style={styles.templatesText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
+                  Templates
+                </Text>
               </View>
             )}
           </DealtCard>
@@ -267,6 +291,50 @@ function BlankSlide({
       <Text style={styles.cardRatio}>{aspect}</Text>
       <Text style={styles.cardName}>{name}</Text>
       {preferred && <View style={styles.preferredDot} />}
+    </View>
+  );
+}
+
+/** A grid puzzle: one picture cut into profile tiles. */
+function GridCard({ w, h }: { w: number; h: number }) {
+  const pad = 6;
+  const gap = 2;
+  const cell = (w - pad * 2 - gap * 2) / 3;
+  const cellH = cell * (4 / 3);
+  const gridH = cellH * 2 + gap;
+  const top = 8;
+  return (
+    <View style={[styles.card, { width: w, height: h, backgroundColor: PAPER }]}>
+      <View style={{ position: 'absolute', left: pad, top, width: w - pad * 2, height: gridH }}>
+        {Array.from({ length: 6 }, (_, i) => (
+          <View
+            key={i}
+            style={{
+              position: 'absolute',
+              left: (i % 3) * (cell + gap),
+              top: Math.floor(i / 3) * (cellH + gap),
+              width: cell,
+              height: cellH,
+              borderRadius: 2,
+              overflow: 'hidden',
+              backgroundColor: '#E6DDCC',
+            }}>
+            {/* The same horizon runs through every tile. */}
+            <View
+              style={{
+                position: 'absolute',
+                left: -(i % 3) * (cell + gap),
+                top: -Math.floor(i / 3) * (cellH + gap) + gridH * 0.55,
+                width: w,
+                height: gridH,
+                backgroundColor: C.accent,
+                transform: [{ rotate: '-8deg' }],
+              }}
+            />
+          </View>
+        ))}
+      </View>
+      <Text style={[styles.cardName, { position: 'absolute', left: 0, bottom: 6, marginTop: 0 }]}>Grid</Text>
     </View>
   );
 }

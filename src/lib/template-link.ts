@@ -14,6 +14,9 @@ import {
   type FontId,
   type FrameShape,
   type Layer,
+  GRID_ASPECT,
+  GRID_COLUMNS,
+  MAX_GRID_ROWS,
   MAX_SLIDES,
   type PhotoLayer,
   type ShapeLayer,
@@ -75,7 +78,8 @@ type PackedLayer = {
   dr?: (string | number)[][];
 };
 
-type Packed = { v: number; n: string; a: AspectId; s: number; b: PackedBg; l: PackedLayer[] };
+/** `g`: grid puzzle rows (unset for a carousel). */
+type Packed = { v: number; n: string; a: AspectId; s: number; g?: number; b: PackedBg; l: PackedLayer[] };
 
 // ---------------------------------------------------------------------------
 // Encode
@@ -153,6 +157,7 @@ export function templateLink(doc: Doc) {
     n: doc.name,
     a: doc.aspect,
     s: doc.slideCount,
+    ...(doc.grid != null ? { g: doc.grid } : {}),
     b: packBackground(doc.background),
     l: doc.layers.flatMap((l) => {
       if (l.hidden) return [];
@@ -322,7 +327,14 @@ export function decodeTemplate(param: string): Doc | null {
       return layer ? [layer] : [];
     });
     const name = typeof json.n === 'string' && json.n.trim() ? json.n.trim().slice(0, 80) : 'Shared template';
-    return { ...createDoc(aspect, slideCount), name, background: unpackBackground(json.b), layers };
+    const grid = json.g == null ? undefined : Math.round(num(json.g, 1, MAX_GRID_ROWS, 1));
+    return {
+      ...createDoc(grid ? GRID_ASPECT : aspect, grid ? GRID_COLUMNS : slideCount),
+      ...(grid ? { grid } : {}),
+      name,
+      background: unpackBackground(json.b),
+      layers,
+    };
   } catch {
     return null;
   }

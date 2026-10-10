@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 
 import { bounds, homeSlide } from './geometry';
-import { ASPECTS, type AspectId, type Background, type Doc, type Layer, MAX_SLIDES, SLIDE_WIDTH, uid } from './types';
+import { ASPECTS, type AspectId, type Background, type Doc, type Layer, MAX_GRID_ROWS, MAX_SLIDES, SLIDE_WIDTH, uid } from './types';
 
 // Editor state for the open project. Every edit goes through `commit`, which
 // snapshots the previous document for undo. Rapid edits with the same
@@ -56,6 +56,8 @@ type EditorState = {
   toggleLocked: (id: string) => void;
   setBackground: (bg: Background, coalesceKey?: string) => void;
   setSlideCount: (n: number) => void;
+  /** Rows in a grid puzzle (no-op for a carousel). */
+  setGridRows: (n: number) => void;
   /** Inserts a slide at `index`, optionally with `layers` already placed on it (one undo step). */
   insertSlide: (index: number, layers?: Layer[]) => void;
   /** Changes the post ratio, keeping the composition (see `withAspect`). */
@@ -339,6 +341,12 @@ export const useEditor = create<EditorState>((set, get) => ({
 
   setSlideCount: (n) =>
     get().commit((d) => ({ ...d, slideCount: Math.max(1, Math.min(MAX_SLIDES, n)) })),
+
+  setGridRows: (n) =>
+    get().commit((d) => {
+      const rows = Math.max(1, Math.min(MAX_GRID_ROWS, n));
+      return d.grid == null || d.grid === rows ? d : { ...d, grid: rows };
+    }),
 
   // Inserting/removing a slide moves layers to its right so content stays on
   // the slide it was on. Straight photos that span the seam (panoramas) grow

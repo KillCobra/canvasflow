@@ -19,7 +19,7 @@ import { C, PALETTE, T } from '@/theme';
 import { BrandColors } from './brand-colors';
 import { ColorWell } from './color-well';
 import { StrokeLine, strokePath } from './drawing-node';
-import { PAD_X, viewMetrics } from './editor-canvas';
+import { viewMetrics } from './editor-canvas';
 import { HScroll, IconButton, PressableScale, Swatch } from './ui';
 
 export type Brush = { color: string; width: number };
@@ -58,7 +58,7 @@ export function DrawOverlay({
   // Gesture worklets; see EditorCanvas for why this opts out of the compiler.
   'use no memo';
   const { width: W, height: H } = canvasSize(doc);
-  const { vs, offsetY, maxScroll } = viewMetrics(doc, width, height);
+  const { vs, offsetX, offsetY, maxScroll } = viewMetrics(doc, width, height);
   /** The stroke under the finger, as flat x,y canvas points. */
   const live = useSharedValue<number[]>([]);
   const inking = useSharedValue(false);
@@ -75,7 +75,7 @@ export function DrawOverlay({
 
   const toCanvas = (sx: number, sy: number) => {
     'worklet';
-    return [(sx - PAD_X + scrollX.get()) / vs, (sy - offsetY) / vs];
+    return [(sx - offsetX + scrollX.get()) / vs, (sy - offsetY) / vs];
   };
 
   const ink = Gesture.Pan()
@@ -125,7 +125,7 @@ export function DrawOverlay({
     });
 
   const view = useDerivedValue<Transforms3d>(() => [
-    { translateX: PAD_X - scrollX.get() },
+    { translateX: offsetX - scrollX.get() },
     { translateY: offsetY },
     { scale: vs },
   ]);

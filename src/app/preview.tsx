@@ -1,16 +1,18 @@
 import { Canvas, Group, Image, type SkImage } from '@shopify/react-native-skia';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, FlatList, PixelRatio, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, FlatList, PixelRatio, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { DocRenderer } from '@/components/doc-renderer';
+import { ProfileHeader } from '@/components/profile-mock';
 import { Icon, IconButton } from '@/components/ui';
+import { useBrandProfile } from '@/lib/brand';
 import { renderSlide } from '@/lib/export';
 import { layersOnSlide } from '@/lib/geometry';
 import { preloadImages, useSkImages } from '@/lib/images';
 import { useEditor } from '@/lib/store';
-import { ASPECTS, SLIDE_WIDTH } from '@/lib/types';
+import { ASPECTS, type Doc, SLIDE_WIDTH, canvasSize, tileCount } from '@/lib/types';
 import { C, T } from '@/theme';
 
 /** Feed-style mock so you can feel the swipe before exporting. */
@@ -23,7 +25,8 @@ export default function PreviewScreen() {
 
   // Render every slide once at screen resolution; paging then just shows images.
   useEffect(() => {
-    if (!doc) return;
+    // Grid puzzles preview on a profile instead (see GridProfilePreview).
+    if (!doc || doc.grid != null) return;
     let alive = true;
     let rendered: (SkImage | null)[] = [];
     (async () => {
@@ -43,8 +46,10 @@ export default function PreviewScreen() {
   }, [doc, width]);
 
   const live = useSkImages(doc?.id ?? '', doc?.layers ?? []);
+  const profile = useBrandProfile();
 
   if (!doc) return null;
+  if (doc.grid != null) return <GridProfilePreview doc={doc} />;
   const k = width / SLIDE_WIDTH;
   const videoSlides = new Set(
     Array.from({ length: doc.slideCount }, (_, i) => i).filter((i) =>
@@ -64,7 +69,7 @@ export default function PreviewScreen() {
 
       <View style={styles.postHeader}>
         <View style={styles.avatar} />
-        <Text style={styles.handle}>your.account</Text>
+        <Text style={styles.handle}>{profile.handle || 'your.account'}</Text>
         <View style={{ flex: 1 }} />
         <Icon name={{ ios: 'ellipsis', android: 'more_horiz' }} size={18} />
       </View>
@@ -137,7 +142,54 @@ export default function PreviewScreen() {
   );
 }
 
+/** A grid puzzle on a mock profile, above a few rows standing in for the existing feed. */
+function GridProfilePreview({ doc }: { doc: Doc }) {
+  const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  const images = useSkImages(doc.id, doc.layers);
+  const { width: W, height: CH } = canvasSize(doc);
+  const k = width / W;
+  const gap = 2;
+  const tileW = width / 3;
+  const tileH = (ASPECTS[doc.aspect].height * k);
+  return (
+    <View style={[styles.screen, { paddingTop: 8 }]}>
+      <View style={styles.header}>
+        <IconButton label="Close" icon={{ ios: 'xmark', android: 'close' }} onPress={() => router.back()} />
+        <Text style={styles.headerTitle}>Preview</Text>
+        <View style={{ width: 40 }} />
+      </View>
+      <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 30 }}>
+        <ProfileHeader posts={tileCount(doc) + 6} />
+        <View style={{ width, height: CH * k }}>
+          <Canvas style={StyleSheet.absoluteFill}>
+            <Group transform={[{ scale: k }]}>
+              <DocRenderer doc={doc} images={images} layers={doc.layers.filter((l) => !l.hidden && (l.type !== 'photo' || !!l.src))} />
+            </Group>
+          </Canvas>
+          {[1, 2].map((c) => (
+            <View key={`c${c}`} style={[styles.gridGap, { left: c * tileW - gap / 2, top: 0, bottom: 0, width: gap }]} />
+          ))}
+          {Array.from({ length: (doc.grid ?? 1) - 1 }, (_, r) => (
+            <View key={`r${r}`} style={[styles.gridGap, { top: (r + 1) * tileH - gap / 2, left: 0, right: 0, height: gap }]} />
+          ))}
+        </View>
+        <View style={[styles.feed, { marginTop: gap }]}>
+          {Array.from({ length: 6 }, (_, i) => (
+            <View key={i} style={{ width: (width - gap * 2) / 3, height: tileH, backgroundColor: C.surface }} />
+          ))}
+        </View>
+        <Text style={[styles.caption, { paddingTop: 14 }]}>
+          The grey tiles are your existing posts. Plan around real ones in the Grid planner.
+        </Text>
+      </ScrollView>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
+  gridGap: { position: 'absolute', backgroundColor: C.bg },
+  feed: { flexDirection: 'row', flexWrap: 'wrap', gap: 2 },
   screen: { flex: 1, backgroundColor: C.bg },
   header: {
     height: 52,

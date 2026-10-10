@@ -18,10 +18,12 @@ import { type Brush, DEFAULT_BRUSH_WIDTH, DrawOverlay, DrawToolbar } from '@/com
 import { drawingFromStrokes } from '@/components/drawing-node';
 import { EditorCanvas, type LiveTransform, PAD_X, viewMetrics } from '@/components/editor-canvas';
 import { EditorOptions } from '@/components/editor-options';
+import { BrandApplySheet } from '@/components/brand-apply-sheet';
 import { ExportSheet } from '@/components/export-sheet';
 import {
   BackgroundPanel,
   ElementsPanel,
+  GridRowsPanel,
   LayoutPanel,
   PANEL_HEIGHT,
 } from '@/components/panels';
@@ -33,7 +35,7 @@ import { OverviewBar, SlideOverview } from '@/components/slide-overview';
 import { SlidesPanel } from '@/components/slides-panel';
 import { TextEditor, type TextValues } from '@/components/text-editor';
 import { Glass, Icon, IconButton, type IconName, PressableScale } from '@/components/ui';
-import { type BrandLogo, brandLogoUri } from '@/lib/brand';
+import { type BrandImage, brandAssetUri, brandLogoUri } from '@/lib/brand';
 import { contrastInk } from '@/lib/color';
 import { useEditorPrefs } from '@/lib/editor-prefs';
 import { updateThumbnail } from '@/lib/export';
@@ -68,13 +70,17 @@ import {
   type TextLayer,
   type NormRect,
   type VideoClip,
+  canvasSize,
+  isGrid,
+  tileCount,
+  tileRect,
   uid,
 } from '@/lib/types';
 import { C, T } from '@/theme';
 
 import { isSubjectLiftAvailable, isVisionAvailable } from '../../../modules/seam-vision';
 
-type Panel = 'layout' | 'background' | 'slides' | 'elements' | 'layers' | null;
+type Panel = 'layout' | 'background' | 'slides' | 'elements' | 'layers' | 'rows' | null;
 type TextSession = { mode: 'new'; size: number; initial: TextValues } | { mode: 'edit'; id: string; initial: TextValues };
 
 export default function EditorScreen() {
@@ -97,6 +103,7 @@ export default function EditorScreen() {
   // Label of a long-running media job (import, cutout); false when idle.
   const [importing, setImporting] = useState<string | false>(false);
   const [exporting, setExporting] = useState(false);
+  const [branding, setBranding] = useState(false);
   const [cropId, setCropId] = useState<string | null>(null);
   const [slidesFocus, setSlidesFocus] = useState(0);
   /** Slide overview; the number is the slide that was in view when it opened. */
@@ -157,6 +164,10 @@ export default function EditorScreen() {
   }
 
   const H = ASPECTS[doc.aspect].height;
+  const grid = isGrid(doc);
+  const canvas = canvasSize(doc);
+  /** Where new things land: the slide in view, or the middle of a grid puzzle. */
+  const centerY = grid ? canvas.height / 2 : H / 2;
 
   /** Slide under the middle of the screen, read on demand so scrolling doesn't re-render the editor. */
   const currentSlide = () => {
@@ -175,7 +186,7 @@ export default function EditorScreen() {
     scrollX.set(animated ? withTiming(target, { duration: 280 }) : target);
   };
 
-  const slideCenter = (i = currentSlide()) => i * SLIDE_WIDTH + SLIDE_WIDTH / 2;
+  const slideCenter = (i = currentSlide()) => (grid ? canvas.width / 2 : i * SLIDE_WIDTH + SLIDE_WIDTH / 2);
 
   /**
    * Picks photos. With `into`, the first photo replaces that layer's image
@@ -252,6 +263,27 @@ export default function EditorScreen() {
           borderColor: '#FFFFFF',
         };
       });
+      if (grid && layers.length) {
+        // A grid puzzle: one photo fills the whole grid (the classic split picture);
+        // several fill the tiles in reading order, any extras land in the middle.
+        const tiles = tileCount(latest);
+        const placed = layers.map((l, i): PhotoLayer => {
+          if (firstBatch && layers.length === 1) {
+            return { ...l, x: canvas.width / 2, y: canvas.height / 2, w: canvas.width, h: canvas.height, cell: true };
+          }
+          if (i < tiles && (firstBatch || layers.length > 1)) {
+            const t = tileRect(latest, i);
+            return { ...l, x: t.x + t.width / 2, y: t.y + t.height / 2, w: t.width, h: t.height, cell: true };
+          }
+          return { ...l, x: canvas.width / 2, y: canvas.height / 2 };
+        });
+        commit((d) => ({
+          ...d,
+          layers: [...placed, ...d.layers.map((l) => filled.get(l.id) ?? l)],
+        }));
+        select(placed.at(-1)?.id ?? null);
+        return;
+      }
       if (firstBatch && layers.length > 1) {
         // A first multi-photo pick gets arranged straight away.
         const res = applyLayout('seamless', layers, latest.aspect, latest.slideCount);
@@ -444,7 +476,8 @@ export default function EditorScreen() {
     setPanel(null);
     setText({
       mode: 'new',
-      size: 96,
+      // A grid puzzle is seen whole on the profile, so its type starts bigger.
+      size: grid ? 220 : 96,
       initial: { text: '', font: 'sans', color: contrastInk(bgColor), align: 'center', fill: null },
     });
   };
@@ -476,7 +509,7 @@ export default function EditorScreen() {
         size,
         ...measureText({ ...values, size }),
         x: slideCenter(),
-        y: H / 2,
+        y: centerY,
         scale: 1,
         rotation: 0,
         opacity: 1,
@@ -496,7 +529,7 @@ export default function EditorScreen() {
       size: 180,
       ...measureText({ ...values, size: 180 }),
       x: slideCenter(),
-      y: H / 2,
+      y: centerY,
       scale: 1,
       rotation: 0,
       opacity: 1,
@@ -505,14 +538,18 @@ export default function EditorScreen() {
     setPanel(null);
   };
 
-  /** Drops a brand-kit logo onto the current slide, as a transparent sticker. */
-  const addLogo = async (logo: BrandLogo) => {
+  /**
+   * Drops a brand-kit logo or image onto the current slide: transparent ones
+   * as stickers, photos as a normal photo layer.
+   */
+  const addLogo = async (logo: BrandImage, kind: 'logo' | 'asset') => {
     setPanel(null);
     try {
-      const src = await importBrandLogo(doc.id, brandLogoUri(logo));
+      const src = await importBrandLogo(doc.id, kind === 'logo' ? brandLogoUri(logo) : brandAssetUri(logo));
       const aspect = logo.width / logo.height;
-      const maxW = SLIDE_WIDTH * 0.42;
-      const maxH = H * 0.24;
+      const sticker = logo.alpha !== false;
+      const maxW = SLIDE_WIDTH * (kind === 'logo' ? 0.42 : sticker ? 0.5 : 0.7);
+      const maxH = H * (kind === 'logo' ? 0.24 : sticker ? 0.4 : 0.6);
       const box = aspect > maxW / maxH ? { w: maxW, h: maxW / aspect } : { w: maxH * aspect, h: maxH };
       const layer: PhotoLayer = {
         id: uid(),
@@ -520,7 +557,7 @@ export default function EditorScreen() {
         src,
         aspect,
         x: slideCenter(),
-        y: H / 2,
+        y: centerY,
         ...box,
         scale: 1,
         rotation: 0,
@@ -528,11 +565,11 @@ export default function EditorScreen() {
         radius: 0,
         border: 0,
         borderColor: '#FFFFFF',
-        cutout: true,
+        cutout: sticker || undefined,
       };
       addLayers([layer]);
     } catch (e) {
-      Alert.alert('Could not add the logo', e instanceof Error ? e.message : String(e));
+      Alert.alert(kind === 'logo' ? 'Could not add the logo' : 'Could not add the image', e instanceof Error ? e.message : String(e));
     }
   };
 
@@ -547,7 +584,7 @@ export default function EditorScreen() {
         radius: 0,
         ...size,
         x: slideCenter(),
-        y: H / 2,
+        y: centerY,
         scale: 1,
         rotation: 0,
         opacity: 1,
@@ -559,9 +596,10 @@ export default function EditorScreen() {
   const fillSlide = () => {
     if (!selected) return;
     const slide = Math.max(0, Math.min(doc.slideCount - 1, Math.floor(selected.x / SLIDE_WIDTH)));
+    const row = grid ? Math.max(0, Math.min((doc.grid ?? 1) - 1, Math.floor(selected.y / H))) : 0;
     updateLayer(selected.id, {
-      x: slideCenter(slide),
-      y: H / 2,
+      x: slide * SLIDE_WIDTH + SLIDE_WIDTH / 2,
+      y: row * H + H / 2,
       w: SLIDE_WIDTH,
       h: H,
       scale: 1,
@@ -572,6 +610,7 @@ export default function EditorScreen() {
   };
 
   const openOverview = () => {
+    if (grid) return;
     setMulti(false);
     setPanel(null);
     setCropId(null);
@@ -714,6 +753,8 @@ export default function EditorScreen() {
         );
       case 'background':
         return <BackgroundPanel onClose={() => setPanel(null)} />;
+      case 'rows':
+        return <GridRowsPanel onClose={() => setPanel(null)} />;
       case 'slides':
         return (
           <SlidesPanel
@@ -744,18 +785,24 @@ export default function EditorScreen() {
             <DockTool icon={{ ios: 'photo.on.rectangle.angled', android: 'add_photo_alternate' }} label="Media" onPress={() => pickPhotos()} />
             <DockTool icon={{ ios: 'textformat', android: 'title' }} label="Text" onPress={startText} />
             <DockTool icon={{ ios: 'scribble.variable', android: 'draw' }} label="Draw" onPress={startDraw} />
-            <DockTool icon={{ ios: 'square.grid.3x1.below.line.grid.1x2', android: 'view_carousel' }} label="Layout" onPress={() => setPanel('layout')} />
+            {!grid && (
+              <DockTool icon={{ ios: 'square.grid.3x1.below.line.grid.1x2', android: 'view_carousel' }} label="Layout" onPress={() => setPanel('layout')} />
+            )}
             <DockTool icon={{ ios: 'circle.lefthalf.filled', android: 'format_paint' }} label="Color" onPress={() => setPanel('background')} />
             <DockTool icon={{ ios: 'star.square.on.square', android: 'interests' }} label="Shapes" onPress={() => setPanel('elements')} />
             <DockTool icon={{ ios: 'square.3.layers.3d', android: 'layers' }} label="Layers" onPress={() => setPanel('layers')} />
-            <DockTool
-              icon={{ ios: 'rectangle.split.3x1', android: 'view_week' }}
-              label="Slides"
-              onPress={() => {
-                setSlidesFocus(currentSlide());
-                setPanel('slides');
-              }}
-            />
+            {grid ? (
+              <DockTool icon={{ ios: 'square.grid.3x3', android: 'grid_on' }} label="Grid" onPress={() => setPanel('rows')} />
+            ) : (
+              <DockTool
+                icon={{ ios: 'rectangle.split.3x1', android: 'view_week' }}
+                label="Slides"
+                onPress={() => {
+                  setSlidesFocus(currentSlide());
+                  setPanel('slides');
+                }}
+              />
+            )}
           </View>
         );
     }
@@ -781,10 +828,11 @@ export default function EditorScreen() {
             label={overview != null ? 'Close overview' : 'Overview'}
             icon={{ ios: 'square.grid.2x2', android: 'grid_view' }}
             tone={overview != null ? 'filled' : 'plain'}
-            disabled={!!draw}
+            disabled={!!draw || grid}
             onPress={() => (overview != null ? closeOverview() : openOverview())}
           />
           <EditorOptions
+            grid={grid}
             overview={overview != null}
             disabled={!!draw}
             onOverview={() => (overview != null ? closeOverview() : openOverview())}
@@ -796,6 +844,11 @@ export default function EditorScreen() {
             onPreview={() => {
               select(null);
               router.push('/preview');
+            }}
+            onBrand={() => {
+              select(null);
+              setPanel(null);
+              setBranding(true);
             }}
           />
         </Glass>
@@ -841,7 +894,7 @@ export default function EditorScreen() {
             onPinchOut={openOverview}
           />
         )}
-        {metrics && overview == null && !draw && doc.slideCount < MAX_SLIDES && (
+        {metrics && !grid && overview == null && !draw && doc.slideCount < MAX_SLIDES && (
           <AddSlideTab
             scrollX={scrollX}
             // Centered in the padding just past the last slide.
@@ -874,7 +927,11 @@ export default function EditorScreen() {
         )}
         {doc.layers.length === 0 && !importing && overview == null && !draw && (
           <View style={styles.emptyHint} pointerEvents="none">
-            <Text style={styles.emptyHintText}>{'Add photos or video to begin.\nPick several and they flow\nacross the slides.'}</Text>
+            <Text style={styles.emptyHintText}>
+              {grid
+                ? 'Add one photo to split it\nacross the grid, or several\nto fill the tiles.'
+                : 'Add photos or video to begin.\nPick several and they flow\nacross the slides.'}
+            </Text>
           </View>
         )}
         {importing && (
@@ -887,6 +944,12 @@ export default function EditorScreen() {
 
       {overview != null ? (
         <View style={styles.pager} />
+      ) : grid ? (
+        <View style={styles.pager}>
+          <Text style={styles.pagerText}>
+            3 × {doc.grid} GRID · {tileCount(doc)} POSTS
+          </Text>
+        </View>
       ) : (
         <Pager scrollX={scrollX} slidePx={slidePx} width={area.width} count={doc.slideCount} />
       )}
@@ -924,6 +987,17 @@ export default function EditorScreen() {
           onCancel={() => setText(null)} onDone={finishText} />
       )}
       {exporting && <ExportSheet doc={doc as Doc} onClose={() => setExporting(false)} />}
+      {branding && (
+        <BrandApplySheet
+          doc={doc}
+          images={images}
+          onApply={(next) => {
+            commit(() => next);
+            setBranding(false);
+          }}
+          onClose={() => setBranding(false)}
+        />
+      )}
       {newSlideAt != null && (
         <NewSlideSheet doc={doc} index={newSlideAt} onPick={insertNewSlide} onClose={() => setNewSlideAt(null)} />
       )}

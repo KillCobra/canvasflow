@@ -8,6 +8,63 @@ export type Release = { id: string; version: string; date: string; title: string
 
 export const CHANGELOG: Release[] = [
   {
+    id: '2026-10-brand-grid',
+    version: '1.0.0',
+    date: 'October 2026',
+    title: 'Your brand, your grid',
+    items: [
+      {
+        icon: { ios: 'paintpalette', android: 'palette' },
+        title: 'Apply brand kit',
+        detail: 'Restyle any carousel with your colours, fonts and handle in one tap, with a few looks to pick from. Or start a template “With my brand”.',
+      },
+      {
+        icon: { ios: 'square.grid.3x3', android: 'grid_on' },
+        title: 'Grid puzzles',
+        detail: 'One picture split across 3, 6, 9 or 12 posts. Export numbers them in posting order so they line up on your profile.',
+      },
+      {
+        icon: { ios: 'person.crop.square', android: 'account_box' },
+        title: 'Grid planner',
+        detail: 'See upcoming carousels and puzzles on your profile next to what you’ve already posted, in the order you’ll post them.',
+      },
+      {
+        icon: { ios: 'seal', android: 'verified' },
+        title: 'A fuller brand kit',
+        detail: 'Your name, handle, website and tagline, brand images, heading and body fonts, and colours pulled straight from your logo.',
+      },
+    ],
+  },
+  {
+    id: '2026-10-templates-2',
+    version: '1.0.0',
+    date: 'October 2026',
+    title: 'Templates, upgraded',
+    items: [
+      {
+        icon: { ios: 'sparkles.rectangle.stack', android: 'library_add' },
+        title: '15 new templates',
+        detail:
+          'Postcard, Itinerary, Big Type, Contact Sheet, Notebook, Recipe Card, Tips Thread, Home Tour, Mixtape, Birthday, Countdown, Magazine, Gallery Wall, Outfit Notes and Reading List.',
+      },
+      {
+        icon: { ios: 'scribble', android: 'draw' },
+        title: 'Paper, film and ink',
+        detail: 'Textured paper, film and stamp frames, photo looks that apply to your own pictures, and hand-drawn doodles you can recolour, move or delete.',
+      },
+      {
+        icon: { ios: 'arrow.left.and.right', android: 'swipe' },
+        title: 'Made to be swiped',
+        detail: 'More designs run photos, routes and type across the seams, so the carousel reads as one picture.',
+      },
+      {
+        icon: { ios: 'photo.stack', android: 'photo_library' },
+        title: 'Real photos in previews',
+        detail: 'Every template previews with photography by 29 Unsplash photographers, all credited in Acknowledgements.',
+      },
+    ],
+  },
+  {
     id: '2026-10-profile',
     version: '1.0.0',
     date: 'October 2026',
@@ -27,11 +84,6 @@ export const CHANGELOG: Release[] = [
         icon: { ios: 'gearshape', android: 'settings' },
         title: 'Settings',
         detail: 'Default ratio and slide count, export format, snapping, and tools to clear the cache or tidy unused media.',
-      },
-      {
-        icon: { ios: 'photo.stack', android: 'photo_library' },
-        title: 'Real photos in previews',
-        detail: 'Templates now preview with photography by 20 Unsplash photographers, and every one of them is credited in Acknowledgements.',
       },
     ],
   },

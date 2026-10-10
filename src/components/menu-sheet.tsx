@@ -54,7 +54,14 @@ export function MenuSheet({
   );
 }
 
-type Ask = { title: string; initial: string; done: (name: string) => void };
+type PromptOptions = {
+  /** Shown as the message on iOS and the empty-field hint elsewhere. */
+  placeholder?: string;
+  /** Lets an empty answer through (to clear a value). */
+  allowEmpty?: boolean;
+};
+
+type Ask = { title: string; initial: string; done: (name: string) => void } & PromptOptions;
 
 /**
  * Asks for a name: the system prompt on iOS, a small sheet elsewhere
@@ -62,19 +69,19 @@ type Ask = { title: string; initial: string; done: (name: string) => void };
  */
 export function useNamePrompt() {
   const [ask, setAsk] = useState<Ask | null>(null);
-  const prompt = (title: string, initial: string, done: (name: string) => void) => {
+  const prompt = (title: string, initial: string, done: (name: string) => void, options: PromptOptions = {}) => {
     if (Platform.OS === 'ios') {
       Alert.prompt(
         title,
-        undefined,
+        options.placeholder,
         (value) => {
-          if (value.trim()) done(value.trim());
+          if (value.trim() || options.allowEmpty) done(value.trim());
         },
         'plain-text',
         initial,
       );
     } else {
-      setAsk({ title, initial, done });
+      setAsk({ title, initial, done, ...options });
     }
   };
   const element = ask ? <NameSheet ask={ask} onClose={() => setAsk(null)} /> : null;
@@ -84,7 +91,7 @@ export function useNamePrompt() {
 function NameSheet({ ask, onClose }: { ask: Ask; onClose: () => void }) {
   const [value, setValue] = useState(ask.initial);
   const submit = () => {
-    if (value.trim()) ask.done(value.trim());
+    if (value.trim() || ask.allowEmpty) ask.done(value.trim());
     onClose();
   };
   return (
@@ -99,7 +106,7 @@ function NameSheet({ ask, onClose }: { ask: Ask; onClose: () => void }) {
           autoFocus
           selectTextOnFocus
           returnKeyType="done"
-          placeholder="Name"
+          placeholder={ask.placeholder ?? 'Name'}
           placeholderTextColor={C.textFaint}
           style={styles.input}
         />
