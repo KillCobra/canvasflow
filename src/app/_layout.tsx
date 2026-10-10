@@ -46,12 +46,18 @@ export default function RootLayout() {
       <ThemeProvider value={theme}>
         <StatusBar style="light" />
         <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: C.bg } }}>
-          <Stack.Screen name="index" />
+          <Stack.Screen name="(tabs)" />
           <Stack.Screen name="editor/[id]" options={{ gestureEnabled: false }} />
           <Stack.Screen name="preview" options={{ presentation: 'modal' }} />
           <Stack.Screen name="templates" options={{ presentation: 'modal' }} />
           <Stack.Screen name="template/[id]" options={{ presentation: 'modal' }} />
           <Stack.Screen name="import" options={{ presentation: 'modal' }} />
+          <Stack.Screen name="brand-kit" />
+          <Stack.Screen name="whats-new" />
+          <Stack.Screen name="settings" />
+          <Stack.Screen name="acknowledgements/index" />
+          <Stack.Screen name="acknowledgements/software" />
+          <Stack.Screen name="acknowledgements/licence" />
           <Stack.Screen name="onboarding" options={{ presentation: 'fullScreenModal', gestureEnabled: false }} />
         </Stack>
       </ThemeProvider>

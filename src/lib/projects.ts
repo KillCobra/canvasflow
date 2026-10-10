@@ -200,6 +200,19 @@ export async function importCutout(docId: string, src: string) {
 }
 
 /**
+ * Copies a brand-kit logo (a transparent PNG) into the project, so the
+ * carousel keeps working if the logo is later removed from the kit. Logos are
+ * small, so the preview is the same file.
+ */
+export async function importBrandLogo(docId: string, uri: string) {
+  const dir = projectDir(docId, true);
+  const name = `${uid()}.png`;
+  await new File(uri).copy(new File(dir, name));
+  await new File(uri).copy(new File(dir, previewName(name)));
+  return name;
+}
+
+/**
  * Copies a picked video into the project folder and saves a poster frame
  * (the editor draws the poster wherever the video isn't playing).
  */

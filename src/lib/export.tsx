@@ -16,6 +16,7 @@ import { adjustMatrix } from './adjust';
 import { isCardFrame, layersOnSlide as onSlide, photoImageRect } from './geometry';
 import { type ImageMap, loadFullImage, preloadImages } from './images';
 import { assetUri, writeThumb } from './projects';
+import { exportFormat, recordExport } from './settings';
 import { type Doc, type Layer, type PhotoLayer, SLIDE_WIDTH, canvasSize } from './types';
 
 /** Layers drawn on slide `index`; empty template slots never make it into an export. */
@@ -53,6 +54,15 @@ function renderStrip(doc: Doc, images: ImageMap) {
     </Group>,
     { width: Math.round(width * k), height: Math.round(height * k) },
   );
+}
+
+/** A finished image, in the format chosen in Settings → Export. */
+function writeExport(image: SkImage, dir: Directory, base: string) {
+  const png = exportFormat() === 'png';
+  const file = new File(dir, `${base}.${png ? 'png' : 'jpg'}`);
+  if (file.exists) file.delete();
+  file.write(png ? image.encodeToBytes(ImageFormat.PNG) : image.encodeToBytes(ImageFormat.JPEG, 95));
+  return file;
 }
 
 function writeTemp(image: SkImage, name: string) {
@@ -153,6 +163,7 @@ export async function exportToPhotos(
     } finally {
       if (video.exists) video.delete();
     }
+    recordExport(1);
     return { saved: 1, videos: 1, stills: 0 };
   }
 
@@ -161,7 +172,7 @@ export async function exportToPhotos(
     try {
       const image = await renderStrip(doc, await full.forSlide(doc.layers));
       if (!image) throw new Error('Could not render the panorama.');
-      const file = writeTemp(image, `seam-${stamp}-strip.jpg`);
+      const file = writeExport(image, Paths.cache, `seam-${stamp}-strip`);
       image.dispose();
       await Asset.create(file.uri);
       file.delete();
@@ -169,6 +180,7 @@ export async function exportToPhotos(
       full.releaseAll();
     }
     onProgress?.({ done: 1, total: 1, current: 1, video: false });
+    recordExport(1);
     return { saved: 1, videos: 0, stills: doc.layers.some(isVideoLayer) ? 1 : 0 };
   }
 
@@ -194,7 +206,7 @@ export async function exportToPhotos(
       } else {
         const image = await renderSlide(doc, images, i);
         if (!image) throw new Error(`Could not render slide ${i + 1}.`);
-        const file = writeTemp(image, `${name}.jpg`);
+        const file = writeExport(image, Paths.cache, name);
         image.dispose();
         await Asset.create(file.uri);
         file.delete();
@@ -209,6 +221,7 @@ export async function exportToPhotos(
   } finally {
     full.releaseAll();
   }
+  recordExport(result.saved);
   return result;
 }
 
@@ -269,8 +282,7 @@ export async function exportForShare(
         ? await renderStrip(doc, images)
         : await renderSlide(doc, images, index);
     if (!image) throw new Error('Could not render the image.');
-    const file = new File(dir, target.kind === 'strip' ? `${base} panorama.jpg` : `${base} ${index + 1}.jpg`);
-    file.write(image.encodeToBytes(ImageFormat.JPEG, 95));
+    const file = writeExport(image, dir, target.kind === 'strip' ? `${base} panorama` : `${base} ${index + 1}`);
     image.dispose();
     onProgress?.({ done: 1, total: 1, current: 1, video: false });
     return file.uri;

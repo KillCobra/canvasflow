@@ -611,11 +611,11 @@ export const inCollection = (t: Template, c: Collection) => templateWords(t).som
 export type Interest = { id: string; label: string; scene: string; match: string[] };
 
 export const INTERESTS: Interest[] = [
-  { id: 'travel', label: 'Travel', scene: 'palms', match: ['travel'] },
-  { id: 'photo-dump', label: 'Photo dump', scene: 'stilllife', match: ['photo dump'] },
-  { id: 'recap', label: 'Monthly recap', scene: 'sunset', match: ['recap', 'monthly'] },
-  { id: 'events', label: 'Events & weddings', scene: 'bokeh', match: ['events', 'event', 'wedding'] },
-  { id: 'business', label: 'Business & product', scene: 'skyline', match: ['business', 'product'] },
+  { id: 'travel', label: 'Travel', scene: 'hiker', match: ['travel'] },
+  { id: 'photo-dump', label: 'Photo dump', scene: 'camera', match: ['photo dump'] },
+  { id: 'recap', label: 'Monthly recap', scene: 'friends', match: ['recap', 'monthly'] },
+  { id: 'events', label: 'Events & weddings', scene: 'concert', match: ['events', 'event', 'wedding'] },
+  { id: 'business', label: 'Business & product', scene: 'street', match: ['business', 'product'] },
   { id: 'minimal', label: 'Minimal & editorial', scene: 'dunes', match: ['minimal', 'editorial'] },
   { id: 'stories', label: 'Stories', scene: 'portrait', match: ['story'] },
   { id: 'panorama', label: 'Panoramas', scene: 'peaks', match: ['panorama', 'landscape'] },

@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { useBrandFonts } from '@/lib/brand';
 import { contrastInk } from '@/lib/color';
 import { allFonts, fontInfo, importFont, useFontsVersion } from '@/lib/fonts';
 import type { TextLayer } from '@/lib/types';
@@ -55,6 +56,7 @@ export function TextEditor({
       : set({ fill: values.color, color: contrastInk(values.color) });
 
   useFontsVersion();
+  const brandFonts = useBrandFonts();
   const font = fontInfo(values.font);
   const addFont = async () => {
     try {
@@ -120,25 +122,33 @@ export function TextEditor({
 
         <View style={{ gap: 12, paddingBottom: 12 }}>
           <HScroll>
-            {allFonts().map(({ id, info }) => (
-              <Chip
-                key={id}
-                selected={values.font === id}
-                onPress={() => set({ font: id })}
-                label={
-                  <Text
-                    numberOfLines={1}
-                    style={{
-                      fontFamily: info.rn,
-                      color: values.font === id ? C.bg : C.text,
-                      fontSize: 15,
-                      maxWidth: 140,
-                    }}>
-                    {info.label}
-                  </Text>
-                }
-              />
-            ))}
+            {/* Brand-kit fonts lead, marked with a dot. */}
+            {[...allFonts()]
+              .sort((a, b) => Number(brandFonts.includes(b.id)) - Number(brandFonts.includes(a.id)))
+              .map(({ id, info }) => (
+                <Chip
+                  key={id}
+                  selected={values.font === id}
+                  onPress={() => set({ font: id })}
+                  label={
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      {brandFonts.includes(id) && (
+                        <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: values.font === id ? C.bg : C.accent }} />
+                      )}
+                      <Text
+                        numberOfLines={1}
+                        style={{
+                          fontFamily: info.rn,
+                          color: values.font === id ? C.bg : C.text,
+                          fontSize: 15,
+                          maxWidth: 140,
+                        }}>
+                        {info.label}
+                      </Text>
+                    </View>
+                  }
+                />
+              ))}
             <Chip
               onPress={addFont}
               label={<Text style={{ ...T.medium, color: C.accent, fontSize: 14 }}>+ Font</Text>}

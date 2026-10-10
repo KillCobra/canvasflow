@@ -33,6 +33,7 @@ import { OverviewBar, SlideOverview } from '@/components/slide-overview';
 import { SlidesPanel } from '@/components/slides-panel';
 import { TextEditor, type TextValues } from '@/components/text-editor';
 import { Glass, Icon, IconButton, type IconName, PressableScale } from '@/components/ui';
+import { type BrandLogo, brandLogoUri } from '@/lib/brand';
 import { contrastInk } from '@/lib/color';
 import { useEditorPrefs } from '@/lib/editor-prefs';
 import { updateThumbnail } from '@/lib/export';
@@ -43,6 +44,7 @@ import { type GridId, type LayoutId, type MagicResult, applyLayout, gridCells } 
 import {
   deleteProject,
   detectPhotoFaces,
+  importBrandLogo,
   importCutout,
   importPhoto,
   importVideo,
@@ -503,6 +505,37 @@ export default function EditorScreen() {
     setPanel(null);
   };
 
+  /** Drops a brand-kit logo onto the current slide, as a transparent sticker. */
+  const addLogo = async (logo: BrandLogo) => {
+    setPanel(null);
+    try {
+      const src = await importBrandLogo(doc.id, brandLogoUri(logo));
+      const aspect = logo.width / logo.height;
+      const maxW = SLIDE_WIDTH * 0.42;
+      const maxH = H * 0.24;
+      const box = aspect > maxW / maxH ? { w: maxW, h: maxW / aspect } : { w: maxH * aspect, h: maxH };
+      const layer: PhotoLayer = {
+        id: uid(),
+        type: 'photo',
+        src,
+        aspect,
+        x: slideCenter(),
+        y: H / 2,
+        ...box,
+        scale: 1,
+        rotation: 0,
+        opacity: 1,
+        radius: 0,
+        border: 0,
+        borderColor: '#FFFFFF',
+        cutout: true,
+      };
+      addLayers([layer]);
+    } catch (e) {
+      Alert.alert('Could not add the logo', e instanceof Error ? e.message : String(e));
+    }
+  };
+
   const addShape = (shape: ShapeLayer['shape']) => {
     const size = shape === 'line' ? { w: 640, h: 10 } : { w: 420, h: 420 };
     addLayers([
@@ -697,7 +730,13 @@ export default function EditorScreen() {
         );
       case 'elements':
         return (
-          <ElementsPanel onAddShape={addShape} onAddSticker={addSticker} onAddGrid={addGrid} onClose={() => setPanel(null)} />
+          <ElementsPanel
+            onAddShape={addShape}
+            onAddSticker={addSticker}
+            onAddGrid={addGrid}
+            onAddLogo={addLogo}
+            onClose={() => setPanel(null)}
+          />
         );
       default:
         return (

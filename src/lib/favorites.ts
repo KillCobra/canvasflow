@@ -41,3 +41,13 @@ function subscribe(l: () => void) {
 export function useFavorites(): string[] {
   return useSyncExternalStore(subscribe, load);
 }
+
+export function clearFavorites() {
+  ids = [];
+  try {
+    file().write('[]');
+  } catch {
+    // In memory for this session.
+  }
+  listeners.forEach((l) => l());
+}

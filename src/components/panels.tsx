@@ -1,8 +1,11 @@
 import { Canvas, Group, Line, vec } from '@shopify/react-native-skia';
 import * as Haptics from 'expo-haptics';
+import { Image } from 'expo-image';
+import { router } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { type BrandLogo, brandLogoUri, useBrandLogos } from '@/lib/brand';
 import type { ImageMap } from '@/lib/images';
 import {
   GRIDS,
@@ -381,20 +384,23 @@ export function ElementsPanel({
   onAddShape,
   onAddSticker,
   onAddGrid,
+  onAddLogo,
   onClose,
 }: {
   onAddShape: (shape: 'rect' | 'circle' | 'line') => void;
   onAddSticker: (emoji: string) => void;
   onAddGrid: (id: GridId) => void;
+  onAddLogo: (logo: BrandLogo) => void;
   onClose: () => void;
 }) {
+  const logos = useBrandLogos();
   // Grid glyphs take the project's slide shape.
   const slideH = useEditor((s) => ASPECTS[s.doc!.aspect].height);
   const glyphH = Math.min(44, (30 * slideH) / SLIDE_WIDTH);
   const glyphW = (glyphH * SLIDE_WIDTH) / slideH;
   return (
     <View style={styles.panel}>
-      <PanelHeader title="Shapes, grids & stickers" onClose={onClose} />
+      <PanelHeader title="Shapes, grids & brand" onClose={onClose} />
       <HScroll gap={4}>
         {GRIDS.map((g) => (
           <Pressable
@@ -429,6 +435,26 @@ export function ElementsPanel({
         ))}
       </HScroll>
       <HScroll gap={4}>
+        {/* Brand-kit logos come first; with none yet, a shortcut to add one. */}
+        {logos.map((l) => (
+          <Pressable
+            key={l.id}
+            accessibilityRole="button"
+            accessibilityLabel="Add brand logo"
+            onPress={() => {
+              Haptics.selectionAsync();
+              onAddLogo(l);
+            }}
+            style={({ pressed }) => [styles.logo, { opacity: pressed ? 0.6 : 1 }]}>
+            <Image source={{ uri: brandLogoUri(l) }} style={styles.logoImage} contentFit="contain" />
+          </Pressable>
+        ))}
+        <ToolButton
+          icon={{ ios: 'paintpalette', android: 'palette' }}
+          label={logos.length ? 'Kit' : 'Logo'}
+          onPress={() => router.push('/brand-kit')}
+        />
+        <View style={styles.vDivider} />
         <ToolButton icon={{ ios: 'square.fill', android: 'square' }} label="Block" onPress={() => onAddShape('rect')} />
         <ToolButton icon={{ ios: 'circle.fill', android: 'circle' }} label="Circle" onPress={() => onAddShape('circle')} />
         <ToolButton icon={{ ios: 'minus', android: 'remove' }} label="Line" onPress={() => onAddShape('line')} />
@@ -465,6 +491,8 @@ const styles = StyleSheet.create({
   },
   magicLabel: { ...T.medium, fontSize: 13, color: C.accent },
   vDivider: { width: StyleSheet.hairlineWidth, height: 40, backgroundColor: C.line, marginHorizontal: 4 },
+  logo: { width: 56, height: 48, borderRadius: 10, backgroundColor: C.surfaceHi, alignSelf: 'center', overflow: 'hidden' },
+  logoImage: { ...StyleSheet.absoluteFill, margin: 6 },
   grid: { alignItems: 'center', gap: 5, width: 54 },
   gridGlyph: { borderRadius: 4, backgroundColor: C.surfaceHi, padding: 2 },
   gridLabel: { ...T.medium, color: C.textDim, fontSize: 11 },

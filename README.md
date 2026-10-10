@@ -22,6 +22,12 @@ Subject lift needs the Neural Engine, so it fails in the iOS Simulator; face det
 ## What it does
 
 - **One wide canvas, split into 1–20 slides** (4:5, 1:1, 3:4, 9:16). Seams are shown as dashed guides.
+- **Dock**: the Seam mark as a tab bar. Home, Projects and You are slide-shaped tiles with one horizon running across them; the active tab is a window onto that picture that stretches across the seams as you switch, like a swipe. The last tile is an empty, dashed slide: tap it to deal a hand of blank slides (1:1, 4:5, 9:16, 3:4 and Templates) with a slide-count stepper, then tap a shape to start.
+- **Projects tab**: every carousel, with folder chips, sorting (recently edited, newest, name) and long-press actions. Home shows the most recent ones.
+- **You**: an optional name, stats (carousels, slides, files saved), the brand kit, What's New (with a badge until opened), settings, acknowledgements and the app version.
+- **Acknowledgements**: every photographer, typeface and open-source library Seam ships, each with its licence text and any notice the licence asks for (You → Acknowledgements, or Settings → About).
+- **Brand kit**: colours (colour well or hex), logos (transparent PNGs from Photos or Files) and up to four brand fonts. Colours lead every colour row, brand fonts lead the text editor's font list, and logos drop onto the canvas from Shapes.
+- **Settings**: default format and slide count for new carousels, snapping, JPEG or PNG export, storage use (carousels, brand kit, cache, free space), Clear cache, Remove unused media, clear favourites, delete all carousels, and version / build / runtime.
 - **Onboarding**: skippable pages on first launch, ending with "What will you make?" (Travel, Photo dump, Monthly recap, Events…). The picks drive a For you row on Home. You can also open a sample project.
 - **Video layers**: add clips alongside photos. They play muted and looping in the editor (with sound in the preview). Trim on a filmstrip (drag either handle, or the middle to slide the window), mute, and double-tap to reposition the clip inside its frame. In a native build, slides with video export as H.264 MP4s with audio; everything else on the slide is composited over and under the clip.
 - **Filters and adjustments**: 8 looks (Golden, Nordic, Vivid, Film, Matte, Mono, Noir) previewed on your own photo, plus exposure, contrast, saturation and warmth. Works on photos and videos (the same colour matrix drives the canvas and the video encoder).
@@ -32,7 +38,7 @@ Subject lift needs the Neural Engine, so it fails in the iOS Simulator; face det
 - **Grids**: 18 grids (split, rows, columns, quad, hero, nine-cell, L-shapes, mosaic, filmstrip, magazine…), added under your photos. Drag a photo onto a cell to drop it in; drag between cells to move or swap.
 - **Magic**: pick a mood (clean, editorial, playful, bold) and get three arrangements of your photos, plus a shuffle. Magic and the one-tap layouts nudge photos so detected faces don't land on a seam. Full-slide photos act as a backdrop: dragging them scrolls the canvas until you select them.
 - **Crop inside the frame**: double-tap a photo (or Crop) to drag/pinch the image within its frame; the rest of the photo shows faintly outside.
-- **Templates**: 23 designs, previewed with built-in sample scenes so they look finished (projects still start with empty slots). Tap one for a detail screen with a swipeable preview, tags and a favourite heart. The templates screen has search, filter chips (For you, Favorites, New, categories) and editorial collections. Designs: Photo Dump, Panorama, Travel Diary, Before/After, Quote, New Drop, Year in Review, Mood Board, Film Strip, Polaroid Wall, Arches, Circles, Headline, Zine, Story Sequence, Grid Recap, Save the Date, Product Launch, Summer Recap, Scrapbook, Monthly Recap, Wedding Day, Clean Lines, with empty photo slots. Adding photos fills the slots left to right; tap a slot (or Add photo / Replace) to choose its image. More can be delivered remotely: set `extra.templatesUrl` in `app.json` to a JSON array in the same shape (see `templates/remote.json`). The catalog is cached on disk, and a remote entry replaces a built-in one with the same id.
+- **Templates**: 23 designs, previewed with 20 bundled sample photos (from Unsplash, via Lorem Picsum) so they look finished (projects still start with empty slots). Tap one for a detail screen with a swipeable preview, tags and a favourite heart. The templates screen has search, filter chips (For you, Favorites, New, categories) and editorial collections. Designs: Photo Dump, Panorama, Travel Diary, Before/After, Quote, New Drop, Year in Review, Mood Board, Film Strip, Polaroid Wall, Arches, Circles, Headline, Zine, Story Sequence, Grid Recap, Save the Date, Product Launch, Summer Recap, Scrapbook, Monthly Recap, Wedding Day, Clean Lines, with empty photo slots. Adding photos fills the slots left to right; tap a slot (or Add photo / Replace) to choose its image. More can be delivered remotely: set `extra.templatesUrl` in `app.json` to a JSON array in the same shape (see `templates/remote.json`). The catalog is cached on disk, and a remote entry replaces a built-in one with the same id.
 - **Layers**: the stack top-first with thumbnails. Tap to select, drag the handle to reorder, eye to hide (hidden layers are never drawn or exported), lock to pin a layer so canvas taps and drags pass through to what's below. Locked layers stay editable from their panel.
 - **Adding slides**: every "+" opens a New Slide sheet: Blank, 12 single-slide layouts (full bleed, framed, split, stacked, offset, polaroid, taped, circle, arch, three across, hero + two, photo + caption) or any grid. Insert left, right or at the end.
 - **Overview**: the grid button (or pinching in on empty canvas) shows every slide at once, each with a drag handle and a menu (add left/right, duplicate, move, delete).
@@ -62,7 +68,8 @@ Liquid Glass (iOS 26+, blur elsewhere) floating top bar and tool dock, spring-an
 ## Layout
 
 ```
-src/app/            routes: index (home), editor/[id], preview (modal), templates (modal), onboarding
+src/app/            routes: (tabs)/index, projects, profile (the dock), editor/[id], preview, templates, template/[id],
+                    import, brand-kit, whats-new, settings, onboarding, acknowledgements/ (index, software, licence)
 src/components/     doc-renderer (Skia), editor-canvas (gestures), panels, layer-panel, layers-panel, slides-panel,
                     multi-panel, video-trimmer, template-thumb, text-editor, export-sheet, brand-mark, project-menu,
                     color-well, ui
@@ -75,6 +82,20 @@ modules/seam-vision/        local Expo module: Vision face detection and subject
 templates/remote.json       sample remote template feed
 src/theme.ts        colors, radii and type tokens
 assets/brand/       icon source (seam-mark.svg)
+assets/samples/     the 20 sample photos used in template previews
+scripts/acknowledgements.mjs  builds src/generated/acknowledgements.json (see Credits)
 ```
 
 The same `DocRenderer` draws the editor, preview, thumbnails and export, so what you see is what gets saved.
+
+## Credits
+
+Seam ships work by many people; the app lists all of it under **You → Acknowledgements**.
+
+- **Photos**: the sample photos in `assets/samples/` are by Dmitrii Vaccinium, Paweł Wojciechowski, Roberto Nickson, Kevin Young, Tim de Groot, Christian Joudrey, Florian Klauer, Vashishtha Jogi, Matthew Skinner, Carli Jean, Roksolana Zasiadko, Paul E. Harrer, Charlie Foster, Desi Mendoza, Alexander Shustov, Bonnie Meisels, Joshua Earle, Danielle MacInnes, Glen Carrie and Mia Domenico, published on [Unsplash](https://unsplash.com) under the [Unsplash License](https://unsplash.com/license) and found through [Lorem Picsum](https://picsum.photos) by David Marby and Nijiko Yonskai. Per-photo links are in `src/lib/credits.ts`.
+- **Typefaces**: Inter, Instrument Serif, Playfair Display, Space Grotesk, DM Mono, Caveat and Bebas Neue under the SIL Open Font License 1.1, and Material Symbols (Android icons) under Apache 2.0, from Google Fonts via `@expo-google-fonts`.
+- **Software**: React Native, Expo, Reanimated, Skia and the rest of the JavaScript and native libraries compiled into the app. `scripts/acknowledgements.mjs` reads the release bundles' source maps, the autolinked pods and a curated list of native code (Skia's codecs, React Native's C++ dependencies, expo-image's decoders, Android libraries), and writes `src/generated/acknowledgements.json`. Upstream licence texts for native code are cached in `scripts/licenses/`. Re-run it after adding or upgrading dependencies:
+
+```bash
+npm run acknowledgements
+```
