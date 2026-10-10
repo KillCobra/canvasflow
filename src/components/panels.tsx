@@ -15,11 +15,13 @@ import {
   magicLayout,
 } from '@/lib/layouts';
 import { useEditor } from '@/lib/store';
-import { ASPECTS, type Doc, type PhotoLayer, SLIDE_WIDTH } from '@/lib/types';
+import { TEXTURES, textureBackground } from '@/lib/textures';
+import { ASPECTS, type Background, type Doc, type PhotoLayer, SLIDE_WIDTH } from '@/lib/types';
 import { C, GRADIENTS, PALETTE, R, T } from '@/theme';
 
+import { BrandColors } from './brand-colors';
 import { ColorWell } from './color-well';
-import { DocRenderer } from './doc-renderer';
+import { BackgroundFill, DocRenderer } from './doc-renderer';
 import { Chip, HScroll, IconButton, Slider, Swatch, ToolButton } from './ui';
 
 export const PANEL_HEIGHT = 168;
@@ -33,35 +35,39 @@ export function PanelHeader({ title, onClose }: { title: string; onClose: () => 
   );
 }
 
+const BG_TABS: { id: Background['kind']; label: string }[] = [
+  { id: 'solid', label: 'Solid' },
+  { id: 'gradient', label: 'Gradient' },
+  { id: 'texture', label: 'Texture' },
+];
+
 export function BackgroundPanel({ onClose }: { onClose: () => void }) {
   const bg = useEditor((s) => s.doc!.background);
   const setBackground = useEditor((s) => s.setBackground);
-  const [tab, setTab] = useState<'solid' | 'gradient'>(bg.kind);
+  const [tab, setTab] = useState<Background['kind']>(bg.kind);
+  const setSolid = (color: string, key?: string) => setBackground({ kind: 'solid', color }, key);
 
   return (
     <View style={styles.panel}>
-      <PanelHeader title="Background" onClose={onClose} />
-      <HScroll>
-        <Chip label="Solid" selected={tab === 'solid'} onPress={() => setTab('solid')} />
-        <Chip label="Gradient" selected={tab === 'gradient'} onPress={() => setTab('gradient')} />
-      </HScroll>
-      <View style={{ height: 8 }} />
-      {tab === 'solid' ? (
+      <View style={styles.panelHeader}>
+        <View style={{ flexDirection: 'row', gap: 6 }}>
+          {BG_TABS.map((t) => (
+            <Chip key={t.id} label={t.label} selected={tab === t.id} onPress={() => setTab(t.id)} style={{ height: 30 }} />
+          ))}
+        </View>
+        <IconButton label="Close" icon={{ ios: 'checkmark', android: 'check' }} onPress={onClose} />
+      </View>
+      {tab === 'solid' && (
         <HScroll gap={2}>
-          <ColorWell
-            value={bg.kind === 'solid' ? bg.color : null}
-            onChange={(c) => setBackground({ kind: 'solid', color: c }, 'well')}
-          />
+          <ColorWell value={bg.kind === 'solid' ? bg.color : null} onChange={(c) => setSolid(c, 'well')} />
+          <BrandColors current={bg.kind === 'solid' ? bg.color : null} onPick={(c) => setSolid(c)} size={32} />
           {PALETTE.map((c) => (
-            <Swatch
-              key={c}
-              color={c}
-              selected={bg.kind === 'solid' && bg.color === c}
-              onPress={() => setBackground({ kind: 'solid', color: c })}
-            />
+            <Swatch key={c} color={c} selected={bg.kind === 'solid' && bg.color === c} onPress={() => setSolid(c)} />
           ))}
         </HScroll>
-      ) : (
+      )}
+      {tab === 'texture' && <TexturePicker background={bg} onChange={setBackground} />}
+      {tab === 'gradient' && (
         <>
           <HScroll gap={2}>
             {GRADIENTS.map((g) => (
@@ -90,6 +96,75 @@ export function BackgroundPanel({ onClose }: { onClose: () => void }) {
             />
           )}
         </>
+      )}
+    </View>
+  );
+}
+
+/** On-screen size of a texture tile, and how much canvas it shows (about three grid squares). */
+const TEXTURE_TILE = 46;
+const TEXTURE_SCALE = 0.3;
+
+/** Texture tiles (drawn by the same shader as the canvas), then the tint. */
+function TexturePicker({
+  background,
+  onChange,
+}: {
+  background: Background;
+  onChange: (bg: Background, coalesceKey?: string) => void;
+}) {
+  const active = background.kind === 'texture' ? background : null;
+  // Browsing keeps the current tint; a first pick uses the texture's own.
+  const tint = active?.colors[0];
+  const own = active ? TEXTURES.find((t) => t.id === active.texture)?.tint : undefined;
+  const tints = [...new Set([...(own ? [own] : []), ...PALETTE])];
+  // Starts a little in from the origin so the notebook's margin rule shows.
+  const span = TEXTURE_TILE / TEXTURE_SCALE + 60;
+  return (
+    <View style={{ gap: 6 }}>
+      <HScroll gap={6}>
+        {TEXTURES.map((t) => {
+          const on = active?.texture === t.id;
+          return (
+            <Pressable
+              key={t.id}
+              accessibilityRole="button"
+              accessibilityLabel={`${t.label} texture`}
+              onPress={() => {
+                Haptics.selectionAsync();
+                onChange(textureBackground(t.id, tint ?? t.tint));
+              }}
+              style={({ pressed }) => [styles.texture, { opacity: pressed ? 0.6 : 1 }]}>
+              <View style={[styles.textureTile, on && styles.textureOn]}>
+                <View style={styles.textureClip}>
+                  <Canvas style={{ width: TEXTURE_TILE, height: TEXTURE_TILE }}>
+                    <Group transform={[{ scale: TEXTURE_SCALE }, { translateX: -60 }, { translateY: -60 }]}>
+                      <BackgroundFill background={textureBackground(t.id, tint ?? t.tint)} width={span} height={span} />
+                    </Group>
+                  </Canvas>
+                </View>
+              </View>
+              <Text style={[styles.textureLabel, on && { color: C.text }]}>{t.label}</Text>
+            </Pressable>
+          );
+        })}
+      </HScroll>
+      {active ? (
+        <HScroll gap={2}>
+          <ColorWell value={active.colors[0]} onChange={(c) => onChange(textureBackground(active.texture, c), 'well')} />
+          <BrandColors current={active.colors[0]} onPick={(c) => onChange(textureBackground(active.texture, c))} />
+          {tints.map((c) => (
+            <Swatch
+              key={c}
+              color={c}
+              size={28}
+              selected={active.colors[0] === c}
+              onPress={() => onChange(textureBackground(active.texture, c))}
+            />
+          ))}
+        </HScroll>
+      ) : (
+        <Text style={styles.cropHint}>Pick a texture, then tint it any colour.</Text>
       )}
     </View>
   );
@@ -313,23 +388,25 @@ export function ElementsPanel({
   onAddGrid: (id: GridId) => void;
   onClose: () => void;
 }) {
+  // Grid glyphs take the project's slide shape.
+  const slideH = useEditor((s) => ASPECTS[s.doc!.aspect].height);
+  const glyphH = Math.min(44, (30 * slideH) / SLIDE_WIDTH);
+  const glyphW = (glyphH * SLIDE_WIDTH) / slideH;
   return (
     <View style={styles.panel}>
       <PanelHeader title="Shapes, grids & stickers" onClose={onClose} />
-      <HScroll gap={8}>
-        <ToolButton icon={{ ios: 'square.fill', android: 'square' }} label="Block" onPress={() => onAddShape('rect')} />
-        <ToolButton icon={{ ios: 'circle.fill', android: 'circle' }} label="Circle" onPress={() => onAddShape('circle')} />
-        <ToolButton icon={{ ios: 'minus', android: 'remove' }} label="Line" onPress={() => onAddShape('line')} />
-        <View style={styles.vDivider} />
+      <HScroll gap={4}>
         {GRIDS.map((g) => (
           <Pressable
             key={g.id}
+            accessibilityRole="button"
+            accessibilityLabel={`${g.label} grid`}
             onPress={() => {
               Haptics.selectionAsync();
               onAddGrid(g.id);
             }}
             style={({ pressed }) => [styles.grid, { opacity: pressed ? 0.6 : 1 }]}>
-            <View style={styles.gridGlyph}>
+            <View style={[styles.gridGlyph, { width: glyphW, height: glyphH }]}>
               {g.cells.map(([x, y, w, h], i) => (
                 <View
                   key={i}
@@ -345,11 +422,17 @@ export function ElementsPanel({
                 </View>
               ))}
             </View>
-            <Text style={styles.gridLabel}>{g.label}</Text>
+            <Text style={styles.gridLabel} numberOfLines={1}>
+              {g.label}
+            </Text>
           </Pressable>
         ))}
       </HScroll>
       <HScroll gap={4}>
+        <ToolButton icon={{ ios: 'square.fill', android: 'square' }} label="Block" onPress={() => onAddShape('rect')} />
+        <ToolButton icon={{ ios: 'circle.fill', android: 'circle' }} label="Circle" onPress={() => onAddShape('circle')} />
+        <ToolButton icon={{ ios: 'minus', android: 'remove' }} label="Line" onPress={() => onAddShape('line')} />
+        <View style={styles.vDivider} />
         {STICKERS.map((s) => (
           <Pressable key={s} onPress={() => onAddSticker(s)} style={styles.sticker}>
             <Text style={{ fontSize: 26 }}>{s}</Text>
@@ -382,8 +465,8 @@ const styles = StyleSheet.create({
   },
   magicLabel: { ...T.medium, fontSize: 13, color: C.accent },
   vDivider: { width: StyleSheet.hairlineWidth, height: 40, backgroundColor: C.line, marginHorizontal: 4 },
-  grid: { alignItems: 'center', gap: 6, width: 52 },
-  gridGlyph: { width: 30, height: 37, borderRadius: 4, backgroundColor: C.surfaceHi, padding: 2 },
+  grid: { alignItems: 'center', gap: 5, width: 54 },
+  gridGlyph: { borderRadius: 4, backgroundColor: C.surfaceHi, padding: 2 },
   gridLabel: { ...T.medium, color: C.textDim, fontSize: 11 },
   layoutLabel: { ...T.semibold, fontSize: 13 },
   layoutHint: { ...T.body, color: C.textDim, fontSize: 11, lineHeight: 15 },
@@ -406,6 +489,19 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   layerActions: { gap: 4, paddingHorizontal: 10 },
+  texture: { alignItems: 'center', gap: 4 },
+  textureTile: {
+    width: TEXTURE_TILE + 6,
+    height: TEXTURE_TILE + 6,
+    borderRadius: R.sm,
+    borderWidth: 1.5,
+    borderColor: 'transparent',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  textureClip: { borderRadius: 7, overflow: 'hidden' },
+  textureOn: { borderColor: C.text },
+  textureLabel: { ...T.medium, color: C.textDim, fontSize: 10 },
   layerHeader: { flexDirection: 'row', alignItems: 'center', paddingRight: 8, height: 40 },
   cropHint: { ...T.body, color: C.textDim, fontSize: 13, paddingHorizontal: 18 },
 });

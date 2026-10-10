@@ -59,6 +59,7 @@ type Shp = {
   h: number;
   color: string;
   radius?: number;
+  rotation?: number;
 };
 
 export type TemplateCategory = string;
@@ -71,6 +72,12 @@ export type Template = {
   slideCount: number;
   background: Background;
   items: (Slot | Txt | Shp)[];
+  /** Search words; also how templates join collections and onboarding interests. */
+  tags?: string[];
+  /** Listed under the New filter. */
+  isNew?: boolean;
+  /** Scene ids for the sample photos in its preview (see samples.tsx). */
+  samples?: string[];
 };
 
 const S = 1080;
@@ -100,15 +107,15 @@ const txt = (
   extra: Partial<Txt> = {},
 ): Txt => ({ kind: 'text', text, font, size, color, x, y, ...extra });
 
-const shp = (shape: Shp['shape'], x: number, y: number, w: number, h: number, color: string): Shp => ({
-  kind: 'shape',
-  shape,
-  x,
-  y,
-  w,
-  h,
-  color,
-});
+const shp = (
+  shape: Shp['shape'],
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  color: string,
+  extra: Partial<Shp> = {},
+): Shp => ({ kind: 'shape', shape, x, y, w, h, color, ...extra });
 
 const grid = (slide: number, margin: number, gutter: number, height: number): Slot[] => {
   const cw = (S - margin * 2 - gutter) / 2;
@@ -130,6 +137,7 @@ export const TEMPLATES: Template[] = [
     category: 'Photo dump',
     aspect: '4:5',
     slideCount: 4,
+    tags: ['photo dump', 'recap', 'monthly', 'casual'],
     background: { kind: 'solid', color: IVORY },
     items: [
       txt('photo dump', 'italic', 150, INK, 470, 190),
@@ -148,6 +156,8 @@ export const TEMPLATES: Template[] = [
     category: 'Panorama',
     aspect: '4:5',
     slideCount: 3,
+    tags: ['panorama', 'travel', 'landscape', 'summer'],
+    samples: ['peaks', 'sunset', 'ocean', 'dunes'],
     background: { kind: 'solid', color: '#0A0A0A' },
     items: [
       slot(1620, 675, 3 * S, 1350),
@@ -162,6 +172,7 @@ export const TEMPLATES: Template[] = [
     category: 'Travel',
     aspect: '4:5',
     slideCount: 3,
+    tags: ['travel', 'city', 'scrapbook', 'weekend'],
     background: { kind: 'solid', color: SAND },
     items: [
       txt('Lisbon', 'editorial', 200, INK, 540, 250),
@@ -179,6 +190,7 @@ export const TEMPLATES: Template[] = [
     category: 'Business',
     aspect: '1:1',
     slideCount: 2,
+    tags: ['business', 'product', 'transformation', 'launch'],
     background: { kind: 'solid', color: '#0A0A0A' },
     items: [
       slot(540, 540, S, S),
@@ -193,6 +205,7 @@ export const TEMPLATES: Template[] = [
     category: 'Editorial',
     aspect: '4:5',
     slideCount: 2,
+    tags: ['editorial', 'minimal', 'quote', 'words'],
     background: { kind: 'gradient', colors: [IVORY, SAND], angle: 0 },
     items: [
       txt('“Make it simple,\nbut significant.”', 'italic', 116, INK, 540, 600),
@@ -207,6 +220,7 @@ export const TEMPLATES: Template[] = [
     category: 'Business',
     aspect: '4:5',
     slideCount: 3,
+    tags: ['business', 'product', 'launch', 'fashion'],
     background: { kind: 'solid', color: '#0A0A0A' },
     items: [
       txt('NEW\nDROP', 'condensed', 330, IVORY, 540, 620),
@@ -223,6 +237,7 @@ export const TEMPLATES: Template[] = [
     category: 'Editorial',
     aspect: '4:5',
     slideCount: 4,
+    tags: ['recap', 'year', 'editorial', 'monthly'],
     background: { kind: 'solid', color: IVORY },
     items: [
       txt('2026\nin review', 'editorial', 170, INK, 540, 560),
@@ -239,6 +254,7 @@ export const TEMPLATES: Template[] = [
     category: 'Photo dump',
     aspect: '1:1',
     slideCount: 3,
+    tags: ['photo dump', 'grid', 'scrapbook', 'aesthetic'],
     background: { kind: 'solid', color: SAND },
     items: [0, 1, 2].flatMap((k) => grid(k, 56, 20, S)),
   },
@@ -248,6 +264,7 @@ export const TEMPLATES: Template[] = [
     category: 'Panorama',
     aspect: '9:16',
     slideCount: 3,
+    tags: ['panorama', 'film', 'story', 'weekend'],
     background: { kind: 'solid', color: '#0A0A0A' },
     items: [
       slot(700, 900, 900, 1400),
@@ -263,6 +280,7 @@ export const TEMPLATES: Template[] = [
     category: 'Travel',
     aspect: '4:5',
     slideCount: 3,
+    tags: ['travel', 'scrapbook', 'summer', 'photo dump', 'polaroid'],
     background: { kind: 'solid', color: SAND },
     items: [
       txt('summer notes', 'script', 120, INK, 540, 200),
@@ -279,6 +297,7 @@ export const TEMPLATES: Template[] = [
     category: 'Editorial',
     aspect: '4:5',
     slideCount: 3,
+    tags: ['editorial', 'minimal', 'wedding', 'day'],
     background: { kind: 'solid', color: IVORY },
     items: [0, 1, 2].flatMap((k) => [
       slot(k * S + 540, 640, 700, 900, { frame: 'arch' }),
@@ -291,6 +310,7 @@ export const TEMPLATES: Template[] = [
     category: 'Minimal',
     aspect: '1:1',
     slideCount: 3,
+    tags: ['minimal', 'travel', 'summer'],
     background: { kind: 'solid', color: '#0A0A0A' },
     items: [
       txt('around the world', 'serif', 96, IVORY, 540, 300, { curve: 0.45 }),
@@ -306,6 +326,7 @@ export const TEMPLATES: Template[] = [
     category: 'Business',
     aspect: '4:5',
     slideCount: 2,
+    tags: ['business', 'tips', 'editorial', 'launch'],
     background: { kind: 'solid', color: '#0A0A0A' },
     items: [
       slot(540, 675, S, 1350),
@@ -323,6 +344,7 @@ export const TEMPLATES: Template[] = [
     category: 'Editorial',
     aspect: '4:5',
     slideCount: 4,
+    tags: ['editorial', 'scrapbook', 'city', 'magazine'],
     background: { kind: 'solid', color: '#F6D5C4' },
     items: [
       txt('ZINE', 'condensed', 420, '#F6D5C4', 540, 520, { outline: { width: 0.03, color: INK } }),
@@ -339,6 +361,7 @@ export const TEMPLATES: Template[] = [
     category: 'Story',
     aspect: '9:16',
     slideCount: 3,
+    tags: ['story', 'event', 'before after'],
     background: { kind: 'solid', color: '#0A0A0A' },
     items: [0, 1, 2].flatMap((k) => [
       slot(k * S + 540, 960, S, 1920),
@@ -352,6 +375,7 @@ export const TEMPLATES: Template[] = [
     category: 'Photo dump',
     aspect: '4:5',
     slideCount: 2,
+    tags: ['photo dump', 'recap', 'monthly', 'grid'],
     background: { kind: 'solid', color: IVORY },
     items: [
       slot(540, 470, 972, 832),
@@ -365,9 +389,10 @@ export const TEMPLATES: Template[] = [
   {
     id: 'save-the-date',
     name: 'Save the Date',
-    category: 'Editorial',
+    category: 'Events',
     aspect: '4:5',
     slideCount: 2,
+    tags: ['wedding', 'event', 'invitation', 'editorial'],
     background: { kind: 'gradient', colors: [IVORY, SAND], angle: Math.PI / 2 },
     items: [
       txt('save the date', 'italic', 110, INK, 540, 260, { curve: 0.3 }),
@@ -384,6 +409,7 @@ export const TEMPLATES: Template[] = [
     category: 'Business',
     aspect: '1:1',
     slideCount: 3,
+    tags: ['business', 'product', 'launch'],
     background: { kind: 'solid', color: '#141414' },
     items: [
       txt('MEET', 'condensed', 300, '#141414', 540, 380, { outline: { width: 0.02, color: GOLD } }),
@@ -391,6 +417,112 @@ export const TEMPLATES: Template[] = [
       slot(1620, 540, 760, 760, { frame: 'circle', shadow: true }),
       txt('Out now', 'sans', 54, INK, 2700, 760, { fill: GOLD, fillStyle: 'pill' }),
       slot(2700, 420, 700, 440, { radius: 24 }),
+    ],
+  },
+  // Newer additions (listed under New).
+  {
+    id: 'summer-recap',
+    name: 'Summer Recap',
+    category: 'Travel',
+    aspect: '4:5',
+    slideCount: 3,
+    isNew: true,
+    tags: ['summer', 'recap', 'travel', 'panorama'],
+    samples: ['ocean', 'palms', 'sunset', 'dunes'],
+    background: { kind: 'solid', color: '#F4EBDD' },
+    items: [
+      txt("summer '26", 'script', 150, INK, 540, 210),
+      txt('a season in pictures', 'mono', 32, STONE, 540, 320),
+      // One photo running across the first seam.
+      slot(1080, 840, 1900, 780, { radius: 18 }),
+      slot(2700, 560, 820, 900, { frame: 'arch' }),
+      txt('until next summer', 'italic', 86, INK, 2700, 1150),
+    ],
+  },
+  {
+    id: 'scrapbook',
+    name: 'Scrapbook',
+    category: 'Photo dump',
+    aspect: '4:5',
+    slideCount: 3,
+    isNew: true,
+    tags: ['scrapbook', 'photo dump', 'memories', 'summer'],
+    samples: ['palms', 'bokeh', 'stilllife', 'portrait', 'sunset'],
+    background: { kind: 'solid', color: '#E9DCC6' },
+    items: [
+      txt('dear diary,', 'script', 120, INK, 500, 190, { rotation: -0.04 }),
+      slot(470, 720, 600, 700, { border: 22, borderColor: '#FFFFFF', rotation: -0.05, shadow: true }),
+      shp('rect', 450, 385, 200, 54, '#F2D27ACC', { rotation: -0.08 }),
+      slot(1180, 830, 640, 520, { border: 22, borderColor: '#FFFFFF', rotation: 0.06, shadow: true }),
+      shp('rect', 1200, 580, 190, 50, '#BFD8C8CC', { rotation: 0.12 }),
+      txt('best day ever', 'script', 80, CLAY, 760, 1250, { rotation: -0.03 }),
+      slot(1720, 420, 460, 560, { frame: 'polaroid', rotation: -0.07, shadow: true }),
+      slot(2420, 780, 620, 760, { frame: 'polaroid', rotation: 0.05, shadow: true }),
+      slot(2950, 330, 400, 400, { frame: 'circle', border: 16, borderColor: '#FFFFFF' }),
+      txt('xo', 'script', 150, CLAY, 2980, 1120, { rotation: 0.06 }),
+    ],
+  },
+  {
+    id: 'monthly-recap',
+    name: 'Monthly Recap',
+    category: 'Photo dump',
+    aspect: '4:5',
+    slideCount: 3,
+    isNew: true,
+    tags: ['recap', 'monthly', 'photo dump', 'grid'],
+    samples: ['stilllife', 'sunset', 'bokeh', 'skyline', 'forest', 'portrait'],
+    background: { kind: 'solid', color: IVORY },
+    items: [
+      txt('October', 'editorial', 180, INK, 540, 290),
+      txt('in pictures', 'italic', 90, STONE, 540, 440),
+      slot(540, 860, 760, 560, { radius: 10 }),
+      txt('31 days · 1 carousel', 'mono', 30, STONE, 540, 1240),
+      ...grid(1, 70, 24, 1350).map((s) => ({ ...s, radius: 10 })),
+      slot(2700, 560, 900, 860, { radius: 10 }),
+      txt('see you, November', 'italic', 80, INK, 2700, 1150),
+    ],
+  },
+  {
+    id: 'wedding-day',
+    name: 'Wedding Day',
+    category: 'Events',
+    aspect: '4:5',
+    slideCount: 3,
+    isNew: true,
+    tags: ['wedding', 'event', 'love', 'editorial'],
+    samples: ['portrait', 'bokeh', 'lake', 'stilllife'],
+    background: { kind: 'gradient', colors: [IVORY, '#EFE6DA'], angle: Math.PI / 2 },
+    items: [
+      txt('Ana & Leo', 'script', 150, INK, 540, 280),
+      shp('line', 540, 400, 120, 3, GOLD),
+      txt('09 · 08 · 2026', 'mono', 36, STONE, 540, 460),
+      slot(540, 930, 620, 700, { frame: 'arch', border: 12, borderColor: GOLD }),
+      slot(1620, 675, 900, 1150, { radius: 6 }),
+      slot(2470, 560, 400, 560, { frame: 'arch' }),
+      slot(2930, 560, 400, 560, { frame: 'arch' }),
+      txt('happily ever after', 'italic', 84, INK, 2700, 1060),
+      txt('thank you for celebrating with us', 'serif', 40, STONE, 2700, 1160),
+    ],
+  },
+  {
+    id: 'clean-lines',
+    name: 'Clean Lines',
+    category: 'Minimal',
+    aspect: '1:1',
+    slideCount: 3,
+    isNew: true,
+    tags: ['minimal', 'clean', 'editorial'],
+    samples: ['dunes', 'ocean', 'forest', 'stilllife'],
+    background: { kind: 'solid', color: '#F7F6F3' },
+    items: [
+      txt('less, but better', 'serif', 72, INK, 540, 150),
+      slot(540, 590, 640, 640),
+      txt('01', 'mono', 28, STONE, 540, 975),
+      slot(1620, 500, 760, 520),
+      shp('line', 1620, 850, 760, 2, INK),
+      txt('Field notes, vol. 2', 'serif', 52, INK, 1620, 925),
+      slot(2700, 530, 420, 740),
+      txt('02', 'mono', 28, STONE, 2700, 975),
     ],
   },
 ];
@@ -401,9 +533,107 @@ export const TEMPLATE_CATEGORIES: TemplateCategory[] = [
   'Editorial',
   'Business',
   'Minimal',
+  'Events',
   'Story',
   'Panorama',
 ];
+
+// ---------------------------------------------------------------------------
+// Browsing. Search, collections and onboarding interests all match on a
+// template's words (category plus tags), so remote templates join in just by
+// carrying the right tags.
+
+/** Picked by hand; shown when there's nothing personal to show yet. */
+const FEATURED = ['polaroid-wall', 'summer-recap', 'photo-dump', 'circles', 'scrapbook', 'panorama', 'headline', 'arches'];
+
+export const featured = (list: Template[]) =>
+  FEATURED.map((id) => list.find((t) => t.id === id)).filter((t): t is Template => !!t);
+
+/** Lowercased category and tags. */
+export function templateWords(t: Template): string[] {
+  return [t.category.toLowerCase(), ...(t.tags ?? []).map((tag) => tag.toLowerCase())];
+}
+
+/** Every word of the query has to appear in the name, category or tags. */
+export function searchTemplates(list: Template[], query: string): Template[] {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.length) return list;
+  return list.filter((t) => {
+    const hay = [t.name.toLowerCase(), ...templateWords(t)].join(' ');
+    return words.every((w) => hay.includes(w));
+  });
+}
+
+export type Collection = {
+  id: string;
+  title: string;
+  subtitle: string;
+  /** Templates with any of these words belong to the collection. */
+  match: string[];
+  /** Template drawn on the banner. */
+  cover: string;
+};
+
+export const COLLECTIONS: Collection[] = [
+  {
+    id: 'summer',
+    title: 'Summer recap',
+    subtitle: 'Sun-faded days, stitched edge to edge',
+    match: ['summer'],
+    cover: 'summer-recap',
+  },
+  {
+    id: 'scrapbook',
+    title: 'Scrapbook diaries',
+    subtitle: 'Polaroids, tape and handwritten notes',
+    match: ['scrapbook'],
+    cover: 'scrapbook',
+  },
+  {
+    id: 'minimal',
+    title: 'Clean & minimal',
+    subtitle: 'Quiet layouts that let photos breathe',
+    match: ['minimal'],
+    cover: 'clean-lines',
+  },
+  {
+    id: 'launch',
+    title: 'Launch week',
+    subtitle: 'Drops, reveals and before-and-afters',
+    match: ['launch', 'product'],
+    cover: 'new-drop',
+  },
+];
+
+export const inCollection = (t: Template, c: Collection) => templateWords(t).some((w) => c.match.includes(w));
+
+/** What people said they make, in onboarding. `scene` is the sample photo on its tile. */
+export type Interest = { id: string; label: string; scene: string; match: string[] };
+
+export const INTERESTS: Interest[] = [
+  { id: 'travel', label: 'Travel', scene: 'palms', match: ['travel'] },
+  { id: 'photo-dump', label: 'Photo dump', scene: 'stilllife', match: ['photo dump'] },
+  { id: 'recap', label: 'Monthly recap', scene: 'sunset', match: ['recap', 'monthly'] },
+  { id: 'events', label: 'Events & weddings', scene: 'bokeh', match: ['events', 'event', 'wedding'] },
+  { id: 'business', label: 'Business & product', scene: 'skyline', match: ['business', 'product'] },
+  { id: 'minimal', label: 'Minimal & editorial', scene: 'dunes', match: ['minimal', 'editorial'] },
+  { id: 'stories', label: 'Stories', scene: 'portrait', match: ['story'] },
+  { id: 'panorama', label: 'Panoramas', scene: 'peaks', match: ['panorama', 'landscape'] },
+];
+
+/** Templates matching the picked interests, best matches first. Empty when nothing was picked. */
+export function forYou(list: Template[], interests: string[]): Template[] {
+  const picked = INTERESTS.filter((i) => interests.includes(i.id));
+  if (!picked.length) return [];
+  return list
+    .map((t, index) => {
+      const words = templateWords(t);
+      return { t, index, score: picked.filter((i) => i.match.some((m) => words.includes(m))).length };
+    })
+    .filter((x) => x.score > 0)
+    .sort((a, b) => b.score - a.score || a.index - b.index)
+    .map((x) => x.t);
+}
 
 /** Turns a template into a fresh document (new ids, measured text). */
 export function instantiate(t: Template): Doc {
@@ -456,7 +686,7 @@ export function instantiate(t: Template): Doc {
       y: item.y,
       w: item.w,
       h: item.h,
-      rotation: 0,
+      rotation: item.rotation ?? 0,
     };
   });
   return {
@@ -505,25 +735,37 @@ function validItem(i: unknown): boolean {
   return false;
 }
 
-/** Drops anything that doesn't look like a template, so a bad feed can't crash the app. */
+const strings = (v: unknown) => (Array.isArray(v) && v.every(isStr) ? (v as string[]) : undefined);
+
+/**
+ * Drops anything that doesn't look like a template, so a bad feed can't crash
+ * the app. Optional fields (tags, isNew, samples) are kept only when well formed.
+ */
 export function parseTemplates(json: unknown): Template[] {
   if (!Array.isArray(json)) return [];
-  return json.filter((t): t is Template => {
-    const v = t as Record<string, unknown>;
-    return (
-      isStr(v?.id) &&
-      isStr(v.name) &&
-      isStr(v.category) &&
-      typeof v.aspect === 'string' &&
-      v.aspect in ASPECTS &&
-      isNum(v.slideCount) &&
-      (v.slideCount as number) >= 1 &&
-      (v.slideCount as number) <= 20 &&
-      typeof v.background === 'object' &&
-      Array.isArray(v.items) &&
-      v.items.every(validItem)
-    );
-  });
+  return json.filter(isTemplate).map((t) => ({
+    ...t,
+    tags: strings(t.tags),
+    samples: strings(t.samples),
+    isNew: t.isNew === true ? true : undefined,
+  }));
+}
+
+function isTemplate(t: unknown): t is Template {
+  const v = t as Record<string, unknown>;
+  return (
+    isStr(v?.id) &&
+    isStr(v.name) &&
+    isStr(v.category) &&
+    typeof v.aspect === 'string' &&
+    v.aspect in ASPECTS &&
+    isNum(v.slideCount) &&
+    (v.slideCount as number) >= 1 &&
+    (v.slideCount as number) <= 20 &&
+    typeof v.background === 'object' &&
+    Array.isArray(v.items) &&
+    v.items.every(validItem)
+  );
 }
 
 function setRemote(list: Template[]) {

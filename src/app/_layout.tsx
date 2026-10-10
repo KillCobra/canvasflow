@@ -50,6 +50,8 @@ export default function RootLayout() {
           <Stack.Screen name="editor/[id]" options={{ gestureEnabled: false }} />
           <Stack.Screen name="preview" options={{ presentation: 'modal' }} />
           <Stack.Screen name="templates" options={{ presentation: 'modal' }} />
+          <Stack.Screen name="template/[id]" options={{ presentation: 'modal' }} />
+          <Stack.Screen name="import" options={{ presentation: 'modal' }} />
           <Stack.Screen name="onboarding" options={{ presentation: 'fullScreenModal', gestureEnabled: false }} />
         </Stack>
       </ThemeProvider>

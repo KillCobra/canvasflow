@@ -2,6 +2,7 @@ import {
   BlendColor,
   ColorMatrix,
   DashPathEffect,
+  FillType,
   FilterMode,
   Group,
   Image,
@@ -12,8 +13,10 @@ import {
   Paint,
   Paragraph,
   Path,
+  PathOp,
   Rect,
   RoundedRect,
+  Shader,
   Shadow,
   type SkImage,
   type SkPath,
@@ -29,10 +32,20 @@ import type { ReactNode } from 'react';
 import { type SharedValue, useAnimatedReaction, useDerivedValue, useSharedValue } from 'react-native-reanimated';
 
 import { type Matrix20, adjustMatrix } from '@/lib/adjust';
-import { type GroupDelta, applyGroupDelta, archCap, frameInner, photoImageRect } from '@/lib/geometry';
+import {
+  type GroupDelta,
+  applyGroupDelta,
+  archCap,
+  filmBand,
+  frameInner,
+  isCardFrame,
+  photoImageRect,
+  stampBite,
+} from '@/lib/geometry';
 import type { ImageMap } from '@/lib/images';
 import { assetUri } from '@/lib/projects';
 import { buildParagraph, curveLayout, highlightBars, isCurved, outlinePx, textPad } from '@/lib/text';
+import { textureEffect, textureUniforms } from '@/lib/textures';
 import {
   type Background,
   type Crop,
@@ -43,6 +56,8 @@ import {
   type TextLayer,
   canvasSize,
 } from '@/lib/types';
+
+import { DrawingNode } from './drawing-node';
 
 // Pure Skia rendering of a document in canvas coordinates. Used by the
 // editor, the swipe preview, thumbnails and the per-slide export, so what
@@ -220,7 +235,7 @@ function GroupLiveNode({
   );
 }
 
-function BackgroundFill({
+export function BackgroundFill({
   background,
   width,
   height,
@@ -231,6 +246,17 @@ function BackgroundFill({
 }) {
   if (background.kind === 'solid') {
     return <Rect x={0} y={0} width={width} height={height} color={background.color} />;
+  }
+  if (background.kind === 'texture') {
+    // One shader over the whole canvas, in canvas coordinates, so the grain
+    // and rules run straight through the seams.
+    const effect = textureEffect();
+    if (!effect) return <Rect x={0} y={0} width={width} height={height} color={background.colors[0]} />;
+    return (
+      <Rect x={0} y={0} width={width} height={height}>
+        <Shader source={effect} uniforms={textureUniforms(background)} />
+      </Rect>
+    );
   }
   // CSS-style gradient line: runs along the true angle and is just long
   // enough for the corners to hit the end colors, across the whole canvas so
@@ -279,9 +305,11 @@ function Photo({
   const showUnder = part == null || part === 'under';
   const showBorder = part == null || part === 'over';
   const outer = framePath(shape, { x, y, width: w, height: h }, layer.radius);
-  // A polaroid's image sits in a square-cornered window inside the card.
-  const clip =
-    shape === 'polaroid' ? framePath('rect', inner, Math.min(layer.radius, 6)) : outer;
+  // Card frames (polaroid, film, stamp...) hold the image in a square-cornered window.
+  const card = isCardFrame(shape);
+  const clip = card ? framePath('rect', inner, Math.min(layer.radius, 6)) : outer;
+  // Film and stamp edges have holes and bites, so their edge shading follows the outline.
+  const cutEdge = shape === 'film' || shape === 'stamp';
 
   if (layer.cutout && layer.src) return image ? <CutoutSticker layer={layer} image={image} matrix={matrix} /> : null;
 
@@ -308,9 +336,16 @@ function Photo({
           <Shadow dx={0} dy={Math.min(w, h) * 0.025} blur={Math.min(w, h) * 0.05} color="#0000008C" shadowOnly />
         </Path>
       )}
-      {showUnder && shape === 'polaroid' && <Path path={outer} color={layer.borderColor || '#FFFFFF'} />}
+      {showUnder && card && (
+        <Path path={outer} color={layer.borderColor || (shape === 'film' ? '#141414' : '#FFFFFF')} />
+      )}
       {showBody && <Group clip={clip}>{body}</Group>}
-      {showBorder && b > 0 && (
+      {showBorder && b > 0 && cutEdge && (
+        <Group clip={outer}>
+          <Path path={outer} style="stroke" strokeWidth={b * 2} color={shape === 'film' ? '#FFFFFF14' : '#00000014'} />
+        </Group>
+      )}
+      {showBorder && b > 0 && !cutEdge && (
         <Path
           path={framePath(
             shape,
@@ -319,11 +354,93 @@ function Photo({
           )}
           style="stroke"
           strokeWidth={b}
-          color={shape === 'polaroid' ? '#00000014' : layer.borderColor}
+          color={card ? '#00000014' : layer.borderColor}
         />
       )}
+      {showBorder && shape === 'taped' && <Tape layer={layer} />}
     </Group>
   );
+}
+
+/** Washi tape colours; translucent so the card and photo show through. */
+const TAPES = ['#F2CC8FC7', '#E5989BBF', '#98C1D9BF', '#81B29ABF', '#E8DDCBD9', '#D9C29CC7', '#B56576B3'];
+
+/** Stable 32-bit hash of a layer id, so a print keeps its tape between renders and in export. */
+function hashId(id: string) {
+  let h = 2166136261;
+  for (let i = 0; i < id.length; i++) {
+    h ^= id.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+/** A strip of washi tape across the top edge of a taped print. */
+function Tape({ layer }: { layer: PhotoLayer }) {
+  const h = hashId(layer.id);
+  const min = Math.min(layer.w, layer.h);
+  const tw = Math.min(layer.w * 0.46, min * 0.62);
+  const th = min * 0.13;
+  const angle = ((h % 11) - 5) * 0.022;
+  const shift = (((h >>> 8) % 9) - 4) * 0.025 * layer.w;
+  const color = TAPES[(h >>> 16) % TAPES.length];
+  return (
+    <Group transform={[{ translateX: shift }, { translateY: -layer.h / 2 + th * 0.12 }, { rotate: angle }]}>
+      <Path path={tapePath(tw, th)} color={color} />
+    </Group>
+  );
+}
+
+/** Tape outline centred on the origin, with torn zigzag ends. */
+function tapePath(w: number, h: number) {
+  const teeth = 6;
+  const t = h * 0.07;
+  const b = Skia.PathBuilder.Make().moveTo(-w / 2, -h / 2).lineTo(w / 2, -h / 2);
+  for (let i = 1; i <= teeth; i++) b.lineTo(w / 2 - (i % 2 ? t : 0), -h / 2 + (h * i) / teeth);
+  b.lineTo(-w / 2, h / 2);
+  for (let i = 1; i <= teeth; i++) b.lineTo(-w / 2 + (i % 2 ? t : 0), h / 2 - (h * i) / teeth);
+  return b.close().build();
+}
+
+/** A film strip around `r`: sprocket holes punched along both long edges. */
+function filmPath(r: SkRect, radius: number): SkPath {
+  const b = Skia.PathBuilder.Make().addRRect(rrect(r, radius, radius));
+  const band = filmBand(r.width, r.height);
+  const across = r.width >= r.height;
+  const length = across ? r.width : r.height;
+  const pitch = band * 0.72;
+  const along = band * 0.36;
+  const thick = band * 0.44;
+  const n = Math.max(1, Math.floor((length - band * 0.3) / pitch));
+  const first = (length - (n - 1) * pitch) / 2;
+  for (let i = 0; i < n; i++) {
+    const c = first + i * pitch;
+    for (const side of [band / 2, (across ? r.height : r.width) - band / 2]) {
+      const hole = across
+        ? { x: r.x + c - along / 2, y: r.y + side - thick / 2, width: along, height: thick }
+        : { x: r.x + side - thick / 2, y: r.y + c - along / 2, width: thick, height: along };
+      b.addRRect(rrect(hole, band * 0.07, band * 0.07));
+    }
+  }
+  return b.setFillType(FillType.EvenOdd).build();
+}
+
+/** A postage stamp around `r`: round perforation bites along every edge, corners included. */
+function stampPath(r: SkRect): SkPath {
+  const rect = Skia.PathBuilder.Make().addRect(r).build();
+  const bite = stampBite(r.width, r.height);
+  const holes = Skia.PathBuilder.Make();
+  const nx = Math.max(2, Math.round(r.width / (bite * 2.8)));
+  const ny = Math.max(2, Math.round(r.height / (bite * 2.8)));
+  for (let i = 0; i <= nx; i++) {
+    const cx = r.x + (r.width * i) / nx;
+    holes.addCircle(cx, r.y, bite).addCircle(cx, r.y + r.height, bite);
+  }
+  for (let j = 1; j < ny; j++) {
+    const cy = r.y + (r.height * j) / ny;
+    holes.addCircle(r.x, cy, bite).addCircle(r.x + r.width, cy, bite);
+  }
+  return Skia.Path.MakeFromOp(rect, holes.build(), PathOp.Difference) ?? rect;
 }
 
 /**
@@ -373,7 +490,9 @@ export function framePath(shape: FrameShape, r: SkRect, radius: number): SkPath 
       .close()
       .build();
   }
-  const rr = shape === 'polaroid' ? Math.min(radius, 10) : radius;
+  if (shape === 'film') return filmPath(r, Math.min(radius, 4));
+  if (shape === 'stamp') return stampPath(r);
+  const rr = shape === 'polaroid' || shape === 'taped' ? Math.min(radius, 10) : radius;
   return b.addRRect(rrect(r, rr, rr)).build();
 }
 
@@ -512,6 +631,7 @@ function LayerContent({ layer }: { layer: Exclude<Layer, PhotoLayer> }) {
   const y = -h / 2;
 
   if (layer.type === 'text') return <TextContent layer={layer} />;
+  if (layer.type === 'drawing') return <DrawingNode layer={layer} />;
   if (layer.shape === 'circle') {
     return <Oval x={x} y={y} width={w} height={h} color={layer.color} />;
   }

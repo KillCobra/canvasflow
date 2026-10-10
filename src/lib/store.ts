@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 
 import { bounds, homeSlide } from './geometry';
-import { ASPECTS, type Background, type Doc, type Layer, MAX_SLIDES, SLIDE_WIDTH, uid } from './types';
+import { ASPECTS, type AspectId, type Background, type Doc, type Layer, MAX_SLIDES, SLIDE_WIDTH, uid } from './types';
 
 // Editor state for the open project. Every edit goes through `commit`, which
 // snapshots the previous document for undo. Rapid edits with the same
@@ -56,7 +56,10 @@ type EditorState = {
   toggleLocked: (id: string) => void;
   setBackground: (bg: Background, coalesceKey?: string) => void;
   setSlideCount: (n: number) => void;
-  insertSlide: (index: number) => void;
+  /** Inserts a slide at `index`, optionally with `layers` already placed on it (one undo step). */
+  insertSlide: (index: number, layers?: Layer[]) => void;
+  /** Changes the post ratio, keeping the composition (see `withAspect`). */
+  setAspect: (aspect: AspectId) => void;
   removeSlide: (index: number) => void;
   moveSlide: (from: number, to: number) => void;
   duplicateSlide: (index: number) => void;
@@ -340,7 +343,15 @@ export const useEditor = create<EditorState>((set, get) => ({
   // Inserting/removing a slide moves layers to its right so content stays on
   // the slide it was on. Straight photos that span the seam (panoramas) grow
   // or shrink by a slide instead of jumping.
-  insertSlide: (index) => get().commit((d) => withSlideInserted(d, index)),
+  insertSlide: (index, extra = []) =>
+    get().commit((d) => {
+      const next = withSlideInserted(d, index);
+      // Full: nothing was inserted, so don't drop the layers onto another slide.
+      if (next === d) return d;
+      return extra.length ? { ...next, layers: [...next.layers, ...extra] } : next;
+    }),
+
+  setAspect: (aspect) => get().commit((d) => withAspect(d, aspect)),
 
   // Layers that sit entirely on a slide travel with it; layers spanning a
   // seam stay where they are (they belong to both neighbours).
@@ -404,6 +415,44 @@ function withSlideInserted(d: Doc, index: number): Doc {
     return l.x >= seam ? { ...l, x: l.x + SLIDE_WIDTH } : l;
   });
   return { ...d, slideCount: d.slideCount + 1, layers };
+}
+
+/**
+ * Re-fits the document to a new post height. Positions scale with the height
+ * so the composition holds; sizes stay, except anything that no longer fits
+ * shrinks to fit. Layers that fill the height (full-bleed photos, backdrop
+ * blocks) and layout cells stretch with it instead: they crop to cover, so
+ * nothing distorts.
+ */
+function withAspect(d: Doc, aspect: AspectId): Doc {
+  if (aspect === d.aspect) return d;
+  const H = ASPECTS[d.aspect].height;
+  const H2 = ASPECTS[aspect].height;
+  const k = H2 / H;
+  const layers = d.layers.map((l): Layer => {
+    const b = bounds(l);
+    const straight = Math.abs(Math.sin(l.rotation)) < 0.01;
+    // Circles, arches and polaroids would change shape, so they only move.
+    const stretchy =
+      (l.type === 'photo' && (l.frame ?? 'rect') === 'rect') || (l.type === 'shape' && l.shape === 'rect');
+    const fills = b.top <= H * 0.05 && b.bottom >= H * 0.95;
+    if (straight && stretchy && (fills || (l.type === 'photo' && l.cell))) {
+      // Empty slots carry their frame's aspect (like grid cells) until a photo lands.
+      const slotAspect = l.type === 'photo' && !l.src ? { aspect: l.w / (l.h * k) } : {};
+      return { ...l, y: l.y * k, h: l.h * k, ...slotAspect };
+    }
+    let y = l.y * k;
+    let scale = l.scale;
+    // Layers that sat inside the slide stay inside it; ones bleeding off the edge keep doing so.
+    if (b.top >= -1 && b.bottom <= H + 1) {
+      const bh = b.bottom - b.top;
+      if (bh > H2) scale *= H2 / bh;
+      const half = (bh * (scale / l.scale)) / 2;
+      y = Math.max(half, Math.min(H2 - half, y));
+    }
+    return { ...l, y, scale };
+  });
+  return { ...d, aspect, layers };
 }
 
 /** Unrotated photos can be stretched across slides without distorting (they crop to cover). */

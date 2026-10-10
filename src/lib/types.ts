@@ -13,9 +13,27 @@ export const ASPECTS: Record<AspectId, { label: string; height: number }> = {
   '9:16': { label: 'Story', height: 1920 },
 };
 
+export type TextureId =
+  | 'paper'
+  | 'kraft'
+  | 'linen'
+  | 'grain'
+  | 'concrete'
+  | 'canvas'
+  | 'grid'
+  | 'dots'
+  | 'lined'
+  | 'speckle';
+
 export type Background =
   | { kind: 'solid'; color: string }
-  | { kind: 'gradient'; colors: [string, string]; angle: number };
+  | { kind: 'gradient'; colors: [string, string]; angle: number }
+  /**
+   * Procedural texture across the whole canvas. `colors` is [tint, ink]: the
+   * tint sits where a gradient's first stop does, so code that reads a
+   * background's main colour (text ink, video fill) works unchanged.
+   */
+  | { kind: 'texture'; texture: TextureId; colors: [string, string] };
 
 type LayerBase = {
   id: string;
@@ -40,7 +58,7 @@ type LayerBase = {
 /** Normalized 0..1 rect, top-left origin, in the upright source image. */
 export type NormRect = { x: number; y: number; width: number; height: number };
 
-export type FrameShape = 'rect' | 'circle' | 'arch' | 'polaroid';
+export type FrameShape = 'rect' | 'circle' | 'arch' | 'polaroid' | 'taped' | 'film' | 'stamp';
 
 export type PhotoLayer = LayerBase & {
   type: 'photo';
@@ -121,7 +139,21 @@ export type ShapeLayer = LayerBase & {
   radius: number;
 };
 
-export type Layer = PhotoLayer | TextLayer | ShapeLayer;
+export type Stroke = {
+  /** Flat x,y pairs in the layer's local coords (origin at the layer center). */
+  points: number[];
+  color: string;
+  /** Unscaled line width. */
+  width: number;
+};
+
+/** Freehand ink. The box (w/h) is fitted around the strokes. */
+export type DrawingLayer = LayerBase & {
+  type: 'drawing';
+  strokes: Stroke[];
+};
+
+export type Layer = PhotoLayer | TextLayer | ShapeLayer | DrawingLayer;
 
 export type Doc = {
   id: string;
@@ -133,6 +165,8 @@ export type Doc = {
   layers: Layer[];
   createdAt: number;
   updatedAt: number;
+  /** Home screen folder id (see projects.ts); unset = not in a folder. */
+  folder?: string;
 };
 
 export type BuiltinFontId =

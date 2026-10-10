@@ -30,15 +30,18 @@ export function SlidesPanel({
   images,
   focused,
   onFocus,
+  onAdd,
   onClose,
 }: {
   images: ImageMap;
   focused: number;
   onFocus: (i: number) => void;
+  /** Open the New Slide sheet for a slide inserted at `index`. */
+  onAdd: (index: number) => void;
   onClose: () => void;
 }) {
   const doc = useEditor((s) => s.doc!);
-  const { insertSlide, removeSlide, moveSlide, duplicateSlide } = useEditor.getState();
+  const { removeSlide, moveSlide, duplicateSlide } = useEditor.getState();
   const count = doc.slideCount;
   const current = Math.min(focused, count - 1);
   const tileH = (TILE_W * ASPECTS[doc.aspect].height) / SLIDE_WIDTH;
@@ -97,10 +100,7 @@ export function SlidesPanel({
             label="Add slide after"
             icon={{ ios: 'plus', android: 'add' }}
             disabled={count >= MAX_SLIDES}
-            onPress={() => {
-              insertSlide(current + 1);
-              onFocus(current + 1);
-            }}
+            onPress={() => onAdd(current + 1)}
           />
           <IconButton
             label="Delete slide"

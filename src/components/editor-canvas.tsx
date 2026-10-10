@@ -93,11 +93,18 @@ type Props = {
   onDoubleTap: (id: string) => void;
   /** A photo was dropped onto a layout cell. */
   onDropInto: (fromId: string, toId: string) => void;
+  /** Guides and right-angle rotation snapping (the editor's Snapping option). */
+  snapping?: boolean;
+  /** Pinched in on empty canvas: zoom out to the slide overview. */
+  onPinchOut?: () => void;
 };
 
 const SNAP_PX = 9;
 const ROTATE_SNAP = 0.06;
 const TAP_SLOP = 10;
+/** Pinch scale on empty canvas that opens the overview. */
+const OVERVIEW_PINCH = 0.75;
+const NO_SNAP = { dx: 0, dy: 0, gx: -1, gy: -1 };
 
 function hitTest(layers: Geo[], px: number, py: number, slop: number, prefer: string | null) {
   'worklet';
@@ -199,6 +206,8 @@ export function EditorCanvas({
   onCrop,
   onDoubleTap,
   onDropInto,
+  snapping = true,
+  onPinchOut,
 }: Props) {
   // Gesture worklets capture values from render; the React Compiler's
   // memoization rewrites those closures in ways worklets can't serialize
@@ -218,6 +227,7 @@ export function EditorCanvas({
   const selectedSV = useSharedValue<string | null>(selectedId);
   const selectionSV = useSharedValue<string[]>(selectedIds);
   const multiSV = useSharedValue(multi);
+  const snapSV = useSharedValue(snapping);
   const cropSV = useSharedValue<string | null>(cropId);
   useEffect(() => {
     layersSV.set(
@@ -252,6 +262,9 @@ export function EditorCanvas({
     selectionSV.set(selectedIds);
     multiSV.set(multi);
   }, [selectedId, selectedIds, multi, selectedSV, selectionSV, multiSV]);
+  useEffect(() => {
+    snapSV.set(snapping);
+  }, [snapping, snapSV]);
 
   // Transform session for the layer under the fingers. `raw` accumulates the
   // gesture deltas; `live` is raw plus snapping and is what gets drawn. A
@@ -270,6 +283,8 @@ export function EditorCanvas({
   const panLast = useSharedValue({ x: 0, y: 0, on: false });
   const pinchLast = useSharedValue({ scale: 1, fx: 0, fy: 0, on: false });
   const rotLast = useSharedValue({ r: 0, on: false });
+  /** A pinch on empty canvas that may open the overview. */
+  const zoomPinch = useSharedValue(false);
   const scrolling = useSharedValue(false);
   const scrollStart = useSharedValue(0);
   const guideX = useSharedValue(-1);
@@ -393,7 +408,7 @@ export function EditorCanvas({
         bottom: next.cy + (bottom - next.cy) * next.scale + next.dy,
       };
       const others = all.filter((l) => !members.includes(l.id) && !l.hidden).map((l) => l.box);
-      const snap = snapBox(box, others, slideCount, H, threshold);
+      const snap = snapSV.get() ? snapBox(box, others, slideCount, H, threshold) : NO_SNAP;
       if ((snap.gx !== -1 && snap.gx !== guideX.get()) || (snap.gy !== -1 && snap.gy !== guideY.get())) {
         scheduleOnRN(tick);
       }
@@ -415,11 +430,13 @@ export function EditorCanvas({
     let rotation = next.rotation;
     const quarter = Math.PI / 2;
     const nearest = Math.round(rotation / quarter) * quarter;
-    if (Math.abs(rotation - nearest) < ROTATE_SNAP) rotation = nearest;
+    if (snapSV.get() && Math.abs(rotation - nearest) < ROTATE_SNAP) rotation = nearest;
 
     const g = all.find((l) => l.id === id)!;
     const others = all.filter((l) => l.id !== id && !l.hidden).map((l) => l.box);
-    const snap = snapBox(boxAt(g.w, g.h, { ...next, rotation }), others, slideCount, H, threshold);
+    const snap = snapSV.get()
+      ? snapBox(boxAt(g.w, g.h, { ...next, rotation }), others, slideCount, H, threshold)
+      : NO_SNAP;
 
     if ((snap.gx !== -1 && snap.gx !== guideX.get()) || (snap.gy !== -1 && snap.gy !== guideY.get())) {
       scheduleOnRN(tick);
@@ -564,9 +581,18 @@ export function EditorCanvas({
           scheduleOnRN(setDropId, null);
         }
         pinchLast.set({ scale: e.scale, fx: e.focalX, fy: e.focalY, on: true });
+      } else if (!id && !multiSV.get() && onPinchOut) {
+        zoomPinch.set(true);
       }
     })
     .onUpdate((e) => {
+      if (zoomPinch.get()) {
+        if (e.scale < OVERVIEW_PINCH) {
+          zoomPinch.set(false);
+          scheduleOnRN(onPinchOut!);
+        }
+        return;
+      }
       const p = pinchLast.get();
       if (!p.on) return;
       pinchLast.set({ scale: e.scale, fx: e.focalX, fy: e.focalY, on: true });
@@ -580,6 +606,7 @@ export function EditorCanvas({
       );
     })
     .onFinalize(() => {
+      zoomPinch.set(false);
       if (pinchLast.get().on) {
         pinchLast.set({ scale: 1, fx: 0, fy: 0, on: false });
         end();

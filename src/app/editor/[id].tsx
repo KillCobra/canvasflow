@@ -14,7 +14,10 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { scheduleOnRN } from 'react-native-worklets';
 
+import { type Brush, DEFAULT_BRUSH_WIDTH, DrawOverlay, DrawToolbar } from '@/components/draw-mode';
+import { drawingFromStrokes } from '@/components/drawing-node';
 import { EditorCanvas, type LiveTransform, PAD_X, viewMetrics } from '@/components/editor-canvas';
+import { EditorOptions } from '@/components/editor-options';
 import { ExportSheet } from '@/components/export-sheet';
 import {
   BackgroundPanel,
@@ -25,10 +28,13 @@ import {
 import { LayerPanel } from '@/components/layer-panel';
 import { MultiPanel } from '@/components/multi-panel';
 import { LayersPanel } from '@/components/layers-panel';
+import { AddSlideTab, NewSlideSheet, inkFor } from '@/components/new-slide-sheet';
+import { OverviewBar, SlideOverview } from '@/components/slide-overview';
 import { SlidesPanel } from '@/components/slides-panel';
 import { TextEditor, type TextValues } from '@/components/text-editor';
-import { Glass, IconButton, ToolButton } from '@/components/ui';
+import { Glass, Icon, IconButton, type IconName, PressableScale } from '@/components/ui';
 import { contrastInk } from '@/lib/color';
+import { useEditorPrefs } from '@/lib/editor-prefs';
 import { updateThumbnail } from '@/lib/export';
 import { useFontsVersion } from '@/lib/fonts';
 import { type GroupDelta, applyGroupDelta, photoImageRect } from '@/lib/geometry';
@@ -44,6 +50,7 @@ import {
   removeUnusedPhotos,
   saveProject,
 } from '@/lib/projects';
+import { type SlideContent, slideContents } from '@/lib/slide-layouts';
 import { selectedLayer, useEditor } from '@/lib/store';
 import { measureText } from '@/lib/text';
 import {
@@ -51,9 +58,11 @@ import {
   type Crop,
   type Doc,
   type Layer,
+  MAX_SLIDES,
   type PhotoLayer,
   SLIDE_WIDTH,
   type ShapeLayer,
+  type Stroke,
   type TextLayer,
   type NormRect,
   type VideoClip,
@@ -76,8 +85,9 @@ export default function EditorScreen() {
   useFontsVersion();
   const canUndo = useEditor((s) => s.past.length > 0);
   const canRedo = useEditor((s) => s.future.length > 0);
-  const { open, close, undo, redo, select, commit, addLayers, updateLayer, updateLayers, toggleSelect } =
+  const { open, close, undo, redo, select, commit, addLayers, updateLayer, updateLayers, toggleSelect, setMulti } =
     useEditor.getState();
+  const snapping = useEditorPrefs((s) => s.snapping);
 
   const [area, setArea] = useState({ width: 0, height: 0 });
   const [panel, setPanel] = useState<Panel>(null);
@@ -87,6 +97,13 @@ export default function EditorScreen() {
   const [exporting, setExporting] = useState(false);
   const [cropId, setCropId] = useState<string | null>(null);
   const [slidesFocus, setSlidesFocus] = useState(0);
+  /** Slide overview; the number is the slide that was in view when it opened. */
+  const [overview, setOverview] = useState<number | null>(null);
+  /** Where the New Slide sheet will insert, while it's open. */
+  const [newSlideAt, setNewSlideAt] = useState<number | null>(null);
+  /** Ink being drawn (canvas coords) until Done turns it into a layer. */
+  const [draw, setDraw] = useState<{ strokes: Stroke[]; brush: Brush } | null>(null);
+  const lastBrush = useRef<Brush | null>(null);
   const scrollX = useSharedValue(0);
   const saveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   /** Set once Back has already saved and cleaned up, so unmount doesn't repeat it. */
@@ -147,13 +164,13 @@ export default function EditorScreen() {
   };
 
   // Uses the latest store state: the slide count may have just changed.
-  const scrollToSlide = (i: number) => {
+  const scrollToSlide = (i: number, animated = true) => {
     const latest = useEditor.getState().doc;
     if (!latest || !area.width) return;
     const m = viewMetrics(latest, area.width, area.height);
     const px = SLIDE_WIDTH * m.vs;
-    const target = PAD_X + i * px + px / 2 - area.width / 2;
-    scrollX.set(withTiming(Math.max(0, Math.min(m.maxScroll, target)), { duration: 280 }));
+    const target = Math.max(0, Math.min(m.maxScroll, PAD_X + i * px + px / 2 - area.width / 2));
+    scrollX.set(animated ? withTiming(target, { duration: 280 }) : target);
   };
 
   const slideCenter = (i = currentSlide()) => i * SLIDE_WIDTH + SLIDE_WIDTH / 2;
@@ -521,8 +538,63 @@ export default function EditorScreen() {
     } as Partial<Layer>);
   };
 
+  const openOverview = () => {
+    setMulti(false);
+    setPanel(null);
+    setCropId(null);
+    setOverview(currentSlide());
+  };
+
+  /** Back to editing, on slide `slide` when one was tapped. */
+  const closeOverview = (slide?: number) => {
+    if (slide != null) scrollToSlide(slide, false);
+    setOverview(null);
+  };
+
+  const insertNewSlide = (content: SlideContent) => {
+    if (newSlideAt == null) return;
+    const at = newSlideAt;
+    const latest = useEditor.getState().doc ?? doc;
+    useEditor.getState().insertSlide(at, slideContents(content, at, latest.aspect, inkFor(latest)));
+    setNewSlideAt(null);
+    setSlidesFocus(at);
+    // Let the store update land first so the new slide exists to scroll to.
+    if (overview == null) setTimeout(() => scrollToSlide(at), 0);
+  };
+
+  const startDraw = () => {
+    setMulti(false);
+    setPanel(null);
+    setCropId(null);
+    setDraw({ strokes: [], brush: lastBrush.current ?? { color: contrastInk(bgColor), width: DEFAULT_BRUSH_WIDTH } });
+  };
+
+  const setBrush = (brush: Brush) => {
+    lastBrush.current = brush;
+    setDraw((d) => d && { ...d, brush });
+  };
+
+  const finishDraw = () => {
+    const layer = draw && drawingFromStrokes(draw.strokes, uid());
+    if (layer) {
+      addLayers([layer]);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    }
+    setDraw(null);
+  };
+
+  const cancelDraw = () => {
+    if (!draw?.strokes.length) return setDraw(null);
+    Alert.alert('Discard drawing?', undefined, [
+      { text: 'Keep drawing', style: 'cancel' },
+      { text: 'Discard', style: 'destructive', onPress: () => setDraw(null) },
+    ]);
+  };
+
   const leave = async () => {
     clearTimeout(saveTimer.current);
+    // Leaving mid-drawing keeps the ink rather than dropping it.
+    if (draw) finishDraw();
     const last = useEditor.getState().doc;
     // Save and render the thumbnail before Home lists projects.
     finished.current = true;
@@ -543,16 +615,34 @@ export default function EditorScreen() {
     );
 
   // The layers list stays up while you pick layers from it.
-  const panelKey =
-    panel === 'layers'
-      ? 'layers'
-      : multi || selectedIds.length > 1
-        ? 'multi'
-        : selected
-          ? `layer-${selected.id}`
-          : (panel ?? 'dock');
+  const panelKey = draw
+    ? 'draw'
+    : overview != null
+      ? 'overview'
+      : panel === 'layers'
+        ? 'layers'
+        : multi || selectedIds.length > 1
+          ? 'multi'
+          : selected
+            ? `layer-${selected.id}`
+            : (panel ?? 'dock');
 
   const bottom = (() => {
+    if (draw) {
+      return (
+        <DrawToolbar
+          brush={draw.brush}
+          onBrush={setBrush}
+          canUndo={draw.strokes.length > 0}
+          onUndo={() => setDraw((d) => d && { ...d, strokes: d.strokes.slice(0, -1) })}
+          onCancel={cancelDraw}
+          onDone={finishDraw}
+        />
+      );
+    }
+    if (overview != null) {
+      return <OverviewBar count={doc.slideCount} onAdd={() => setNewSlideAt(doc.slideCount)} onDone={() => closeOverview()} />;
+    }
     if (panel === 'layers') {
       return (
         <LayersPanel
@@ -601,6 +691,7 @@ export default function EditorScreen() {
               // Let the store update land first (e.g. a slide just added).
               setTimeout(() => scrollToSlide(i), 0);
             }}
+            onAdd={setNewSlideAt}
             onClose={() => setPanel(null)}
           />
         );
@@ -611,14 +702,14 @@ export default function EditorScreen() {
       default:
         return (
           <View style={styles.tools}>
-            <ToolButton bare icon={{ ios: 'photo.on.rectangle.angled', android: 'add_photo_alternate' }} label="Media" onPress={() => pickPhotos()} />
-            <ToolButton bare icon={{ ios: 'textformat', android: 'title' }} label="Text" onPress={startText} />
-            <ToolButton bare icon={{ ios: 'square.grid.3x1.below.line.grid.1x2', android: 'view_carousel' }} label="Layout" onPress={() => setPanel('layout')} />
-            <ToolButton bare icon={{ ios: 'circle.lefthalf.filled', android: 'format_paint' }} label="Color" onPress={() => setPanel('background')} />
-            <ToolButton bare icon={{ ios: 'star.square.on.square', android: 'interests' }} label="Shapes" onPress={() => setPanel('elements')} />
-            <ToolButton bare icon={{ ios: 'square.3.layers.3d', android: 'layers' }} label="Layers" onPress={() => setPanel('layers')} />
-            <ToolButton
-              bare
+            <DockTool icon={{ ios: 'photo.on.rectangle.angled', android: 'add_photo_alternate' }} label="Media" onPress={() => pickPhotos()} />
+            <DockTool icon={{ ios: 'textformat', android: 'title' }} label="Text" onPress={startText} />
+            <DockTool icon={{ ios: 'scribble.variable', android: 'draw' }} label="Draw" onPress={startDraw} />
+            <DockTool icon={{ ios: 'square.grid.3x1.below.line.grid.1x2', android: 'view_carousel' }} label="Layout" onPress={() => setPanel('layout')} />
+            <DockTool icon={{ ios: 'circle.lefthalf.filled', android: 'format_paint' }} label="Color" onPress={() => setPanel('background')} />
+            <DockTool icon={{ ios: 'star.square.on.square', android: 'interests' }} label="Shapes" onPress={() => setPanel('elements')} />
+            <DockTool icon={{ ios: 'square.3.layers.3d', android: 'layers' }} label="Layers" onPress={() => setPanel('layers')} />
+            <DockTool
               icon={{ ios: 'rectangle.split.3x1', android: 'view_week' }}
               label="Slides"
               onPress={() => {
@@ -648,9 +739,22 @@ export default function EditorScreen() {
           <IconButton label="Redo" icon={{ ios: 'arrow.uturn.forward', android: 'redo' }} disabled={!canRedo} onPress={redo} />
           <View style={styles.divider} />
           <IconButton
-            label="Preview"
-            icon={{ ios: 'play', android: 'play_arrow' }}
-            onPress={() => {
+            label={overview != null ? 'Close overview' : 'Overview'}
+            icon={{ ios: 'square.grid.2x2', android: 'grid_view' }}
+            tone={overview != null ? 'filled' : 'plain'}
+            disabled={!!draw}
+            onPress={() => (overview != null ? closeOverview() : openOverview())}
+          />
+          <EditorOptions
+            overview={overview != null}
+            disabled={!!draw}
+            onOverview={() => (overview != null ? closeOverview() : openOverview())}
+            onSelectMultiple={() => {
+              closeOverview();
+              setPanel(null);
+              setMulti(true);
+            }}
+            onPreview={() => {
               select(null);
               router.push('/preview');
             }}
@@ -660,6 +764,8 @@ export default function EditorScreen() {
           label="Export"
           tone="accent"
           icon={{ ios: 'arrow.down', android: 'download' }}
+          // Ink isn't part of the doc until Done.
+          disabled={!!draw}
           onPress={() => {
             select(null);
             setExporting(true);
@@ -692,9 +798,42 @@ export default function EditorScreen() {
             onCrop={onCrop}
             onDoubleTap={onDoubleTap}
             onDropInto={onDropInto}
+            snapping={snapping}
+            onPinchOut={openOverview}
           />
         )}
-        {doc.layers.length === 0 && !importing && (
+        {metrics && overview == null && !draw && doc.slideCount < MAX_SLIDES && (
+          <AddSlideTab
+            scrollX={scrollX}
+            // Centered in the padding just past the last slide.
+            x={PAD_X + doc.slideCount * slidePx + PAD_X / 2}
+            y={metrics.offsetY + (H * metrics.vs) / 2}
+            onPress={() => setNewSlideAt(doc.slideCount)}
+          />
+        )}
+        {draw && area.width > 0 && (
+          <DrawOverlay
+            doc={doc}
+            width={area.width}
+            height={area.height}
+            scrollX={scrollX}
+            strokes={draw.strokes}
+            brush={draw.brush}
+            onStroke={(stroke) => setDraw((d) => d && { ...d, strokes: [...d.strokes, stroke] })}
+          />
+        )}
+        {overview != null && area.width > 0 && (
+          <SlideOverview
+            doc={doc}
+            images={images}
+            width={area.width}
+            height={area.height}
+            current={Math.min(overview, doc.slideCount - 1)}
+            onOpen={closeOverview}
+            onAdd={setNewSlideAt}
+          />
+        )}
+        {doc.layers.length === 0 && !importing && overview == null && !draw && (
           <View style={styles.emptyHint} pointerEvents="none">
             <Text style={styles.emptyHintText}>{'Add photos or video to begin.\nPick several and they flow\nacross the slides.'}</Text>
           </View>
@@ -707,17 +846,26 @@ export default function EditorScreen() {
         )}
       </View>
 
-      <Pager scrollX={scrollX} slidePx={slidePx} width={area.width} count={doc.slideCount} />
+      {overview != null ? (
+        <View style={styles.pager} />
+      ) : (
+        <Pager scrollX={scrollX} slidePx={slidePx} width={area.width} count={doc.slideCount} />
+      )}
 
       <View style={[styles.bottomWrap, { paddingBottom: Math.max(insets.bottom - 6, 10) }]}>
         <Glass
           style={[
             styles.bottom,
-            panelKey === 'dock'
+            panelKey === 'dock' || panelKey === 'overview'
               ? styles.dock
               : {
                   // Same height for one or many selected, so the canvas doesn't jump.
-                  height: panelKey === 'multi' || selected || panel === 'layers' ? PANEL_HEIGHT + 82 : PANEL_HEIGHT + 44,
+                  height:
+                    panelKey === 'draw'
+                      ? DRAW_PANEL_HEIGHT
+                      : panelKey === 'multi' || selected || panel === 'layers'
+                        ? PANEL_HEIGHT + 82
+                        : PANEL_HEIGHT + 44,
                 },
           ]}>
           <Animated.View
@@ -737,6 +885,9 @@ export default function EditorScreen() {
           onCancel={() => setText(null)} onDone={finishText} />
       )}
       {exporting && <ExportSheet doc={doc as Doc} onClose={() => setExporting(false)} />}
+      {newSlideAt != null && (
+        <NewSlideSheet doc={doc} index={newSlideAt} onPick={insertNewSlide} onClose={() => setNewSlideAt(null)} />
+      )}
     </View>
   );
 }
@@ -770,7 +921,10 @@ const styles = StyleSheet.create({
   bottomWrap: { paddingHorizontal: 10, paddingTop: 6 },
   bottom: { borderRadius: 30, paddingVertical: 8, justifyContent: 'center' },
   dock: { height: 84, borderRadius: 32 },
-  tools: { flexDirection: 'row', justifyContent: 'space-around', paddingHorizontal: 6 },
+  tools: { flexDirection: 'row', justifyContent: 'space-around', paddingHorizontal: 2 },
+  dockTool: { width: 42, alignItems: 'center', gap: 7, paddingVertical: 4 },
+  dockIcon: { height: 30, justifyContent: 'center' },
+  dockLabel: { ...T.medium, color: C.textDim, fontSize: 11, letterSpacing: 0.2 },
   importing: {
     position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
     backgroundColor: '#000000AA',
@@ -780,6 +934,29 @@ const styles = StyleSheet.create({
   },
   importingText: { ...T.medium, fontSize: 14 },
 });
+
+const DRAW_PANEL_HEIGHT = 152;
+
+/** A bare tool in the dock, narrower than a ToolButton so all eight fit across a phone. */
+function DockTool({ icon, label, onPress }: { icon: IconName; label: string; onPress: () => void }) {
+  return (
+    <PressableScale
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      onPress={() => {
+        Haptics.selectionAsync();
+        onPress();
+      }}
+      style={styles.dockTool}>
+      <View style={styles.dockIcon}>
+        <Icon name={icon} size={23} />
+      </View>
+      <Text style={styles.dockLabel} numberOfLines={1}>
+        {label}
+      </Text>
+    </PressableScale>
+  );
+}
 
 /** Slide counter. Owns its scroll subscription so scrolling only re-renders this. */
 function Pager({

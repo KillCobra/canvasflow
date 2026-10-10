@@ -1,5 +1,5 @@
 import { Blur, Group, Image, ImageFormat, Rect, type SkImage, drawAsImage } from '@shopify/react-native-skia';
-import { File, Paths } from 'expo-file-system';
+import { Directory, File, Paths } from 'expo-file-system';
 import { Asset, requestPermissionsAsync } from 'expo-media-library';
 
 import { DocRenderer, type LayerPart } from '@/components/doc-renderer';
@@ -13,7 +13,7 @@ import {
 } from '../../modules/seam-video-export';
 
 import { adjustMatrix } from './adjust';
-import { layersOnSlide as onSlide, photoImageRect } from './geometry';
+import { isCardFrame, layersOnSlide as onSlide, photoImageRect } from './geometry';
 import { type ImageMap, loadFullImage, preloadImages } from './images';
 import { assetUri, writeThumb } from './projects';
 import { type Doc, type Layer, type PhotoLayer, SLIDE_WIDTH, canvasSize } from './types';
@@ -147,7 +147,12 @@ export async function exportToPhotos(
   const stamp = Date.now();
 
   if (mode === 'swipe' || mode === 'reel') {
-    await exportSwipeVideo(doc, mode, `seam-${stamp}-${mode}`, onProgress);
+    const video = await exportSwipeVideo(doc, mode, new File(Paths.cache, `seam-${stamp}-${mode}.mp4`), onProgress);
+    try {
+      await Asset.create(video.uri);
+    } finally {
+      if (video.exists) video.delete();
+    }
     return { saved: 1, videos: 1, stills: 0 };
   }
 
@@ -207,6 +212,73 @@ export async function exportToPhotos(
   return result;
 }
 
+/** One file for the share sheet: a single slide, the panorama, or the swipe video. */
+export type ShareTarget = { kind: 'slide'; index: number } | { kind: 'strip' } | { kind: 'swipe' };
+
+/** A clean folder per share; the files from the last share are dropped. */
+function shareDir() {
+  const dir = new Directory(Paths.cache, 'seam-share');
+  if (dir.exists) dir.delete();
+  dir.create({ intermediates: true });
+  return dir;
+}
+
+/** The project name as a file name (it's what AirDrop and Files show). */
+const fileBase = (doc: Doc) =>
+  doc.name
+    .replace(/[\\/:*?"<>|#%\s]+/g, ' ')
+    .trim()
+    .slice(0, 40) || 'Seam';
+
+/**
+ * Renders `target` to a file in the cache for the share sheet, without
+ * touching Photos. Resolves the file:// URI. The file stays until the next
+ * share (the receiving app may still be reading it when the sheet closes).
+ */
+export async function exportForShare(
+  doc: Doc,
+  target: ShareTarget,
+  onProgress?: (p: ExportProgress) => void,
+): Promise<string> {
+  const dir = shareDir();
+  const base = fileBase(doc);
+
+  if (target.kind === 'swipe') {
+    return (await exportSwipeVideo(doc, 'swipe', new File(dir, `${base} swipe.mp4`), onProgress)).uri;
+  }
+
+  const index = Math.max(0, Math.min(doc.slideCount - 1, target.kind === 'slide' ? target.index : 0));
+  const layers = target.kind === 'strip' ? doc.layers : layersOnSlide(doc.layers, index);
+  const full = new FullImages(doc.id, [layers]);
+  try {
+    const images = await full.forSlide(layers);
+    if (target.kind === 'slide' && layers.some(isVideoLayer) && isVideoExportAvailable()) {
+      onProgress?.({ done: 0, total: 1, current: 1, video: true });
+      return await exportVideoSlide(
+        doc,
+        images,
+        layers,
+        index,
+        `${base} ${index + 1}`,
+        (f) => onProgress?.({ done: f, total: 1, current: 1, video: true }),
+        dir,
+      );
+    }
+    const image =
+      target.kind === 'strip'
+        ? await renderStrip(doc, images)
+        : await renderSlide(doc, images, index);
+    if (!image) throw new Error('Could not render the image.');
+    const file = new File(dir, target.kind === 'strip' ? `${base} panorama.jpg` : `${base} ${index + 1}.jpg`);
+    file.write(image.encodeToBytes(ImageFormat.JPEG, 95));
+    image.dispose();
+    onProgress?.({ done: 1, total: 1, current: 1, video: false });
+    return file.uri;
+  } finally {
+    full.releaseAll();
+  }
+}
+
 /**
  * Splits the slide into still layers (rendered here as transparent PNGs) and
  * video layers (decoded and composited natively, frame by frame), in z-order.
@@ -220,6 +292,7 @@ async function exportVideoSlide(
   index: number,
   name: string,
   onProgress: (fraction: number) => void,
+  outDir: Directory = Paths.cache,
 ) {
   const { height } = canvasSize(doc);
   const parts: (SlideImagePart | SlideVideoPart)[] = [];
@@ -261,6 +334,9 @@ async function exportVideoSlide(
     const sin = Math.sin(l.rotation) * l.scale;
     const r = photoImageRect(l);
     const shape = l.frame ?? 'rect';
+    // Card frames (polaroid, taped, film, stamp) clip the video to their
+    // window; the card itself is in the still parts around it.
+    const card = isCardFrame(shape);
     parts.push({
       type: 'video',
       uri: assetUri(doc.id, l.src),
@@ -269,10 +345,10 @@ async function exportVideoSlide(
       matrix: [cos, sin, -sin, cos, l.x - index * SLIDE_WIDTH, l.y],
       frameWidth: l.w,
       frameHeight: l.h,
-      // Same clip as DocRenderer: a polaroid's video sits in the card's window.
-      cornerRadius: shape === 'polaroid' ? Math.min(l.radius, 6) : l.radius,
+      // Same clip as DocRenderer.
+      cornerRadius: card ? Math.min(l.radius, 6) : l.radius,
       clip: shape === 'circle' ? 'ellipse' : shape === 'arch' ? 'arch' : 'roundedRect',
-      frameRect: shape === 'polaroid' ? r.inner : null,
+      frameRect: card ? r.inner : null,
       drawRect: { x: r.x, y: r.y, width: r.width, height: r.height },
       opacity: l.opacity,
       colorMatrix: adjustMatrix(l.adjust),
@@ -289,7 +365,7 @@ async function exportVideoSlide(
     .filter((v) => !v.video!.muted)
     .sort((a, b) => b.w * b.h * b.scale ** 2 - a.w * a.h * a.scale ** 2)[0];
 
-  const output = new File(Paths.cache, `${name}.mp4`);
+  const output = new File(outDir, `${name}.mp4`);
   if (output.exists) output.delete();
   try {
     return await exportSlideVideo(
@@ -319,9 +395,9 @@ const REEL = { width: 1080, height: 1920 };
 async function exportSwipeVideo(
   doc: Doc,
   mode: 'swipe' | 'reel',
-  name: string,
+  output: File,
   onProgress?: (p: ExportProgress) => void,
-) {
+): Promise<File> {
   if (!isVideoExportAvailable()) throw new Error('Swipe videos need the Seam app build (Expo Go can’t encode video).');
   const { height } = canvasSize(doc);
   const n = doc.slideCount;
@@ -333,6 +409,7 @@ async function exportSwipeVideo(
     ? { x: (out.width - winW) / 2, y: Math.max(48, Math.round((out.height - winH) / 2 - 40)), width: winW, height: winH }
     : { x: 0, y: 0, width: winW, height: winH };
   const status = (done: number, label: string) => onProgress?.({ done, total: 1, current: 1, video: true, label });
+  const name = output.name.replace(/\.mp4$/, '');
 
   const slides = Array.from({ length: n }, (_, i) => layersOnSlide(doc.layers, i));
   const full = new FullImages(doc.id, slides);
@@ -361,11 +438,9 @@ async function exportSwipeVideo(
       }
     }
 
-    const output = new File(Paths.cache, `${name}.mp4`);
     if (output.exists) output.delete();
-    temp.push(output);
     status(0.3, 'Encoding swipe video');
-    const uri = await exportPanVideo(
+    await exportPanVideo(
       {
         slides: temp.slice(0, n).map((f) => f.uri),
         width: out.width,
@@ -384,7 +459,10 @@ async function exportSwipeVideo(
       },
       (f) => status(0.3 + f * 0.7, 'Encoding swipe video'),
     );
-    await Asset.create(uri);
+    return output;
+  } catch (e) {
+    if (output.exists) output.delete();
+    throw e;
   } finally {
     first?.dispose();
     full.releaseAll();
@@ -411,7 +489,7 @@ function renderBackdrop(image: SkImage) {
 
 const even = (v: number) => Math.round(v / 2) * 2;
 
-/** The background as an opaque #RRGGBB (gradients use their first stop). */
+/** The background as an opaque #RRGGBB (gradients use their first stop, textures their tint). */
 function solidHex(doc: Doc) {
   const c = doc.background.kind === 'solid' ? doc.background.color : doc.background.colors[0];
   return /^#[0-9a-f]{6}/i.test(c) ? c.slice(0, 7) : '#000000';

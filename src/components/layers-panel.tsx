@@ -1,4 +1,4 @@
-import { Canvas, FilterMode, Image, MipmapMode } from '@shopify/react-native-skia';
+import { Canvas, FilterMode, Group, Image, MipmapMode } from '@shopify/react-native-skia';
 import * as Haptics from 'expo-haptics';
 import { useEffect } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
@@ -6,12 +6,14 @@ import { Gesture, GestureDetector, ScrollView } from 'react-native-gesture-handl
 import Animated, { type SharedValue, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
 
+import { contrastInk } from '@/lib/color';
 import type { ImageMap } from '@/lib/images';
 import { useEditor } from '@/lib/store';
 import { fontInfo } from '@/lib/fonts';
 import type { Layer } from '@/lib/types';
 import { C, R, T } from '@/theme';
 
+import { DrawingNode } from './drawing-node';
 import { PanelHeader } from './panels';
 import { Icon } from './ui';
 
@@ -22,6 +24,7 @@ const SPRING = { damping: 20, stiffness: 300 };
 export function layerLabel(l: Layer) {
   if (l.type === 'photo') return !l.src ? 'Empty frame' : l.video ? 'Video' : 'Photo';
   if (l.type === 'shape') return l.shape === 'circle' ? 'Circle' : l.shape === 'line' ? 'Line' : 'Block';
+  if (l.type === 'drawing') return 'Drawing';
   if (l.sticker) return `Sticker ${l.text}`;
   const line = l.text.split('\n')[0];
   return line.length > 26 ? `${line.slice(0, 25)}…` : line;
@@ -300,6 +303,18 @@ function Thumb({ layer, image }: { layer: Layer; image?: ImageMap[string] }) {
           backgroundColor: layer.color,
         }}
       />
+    );
+  }
+  if (layer.type === 'drawing') {
+    // Fit the ink into the tile; dark ink gets a light card so it stays visible.
+    const k = (size - 6) / Math.max(layer.w, layer.h);
+    const ink = layer.strokes[0]?.color ?? C.text;
+    return (
+      <Canvas style={{ width: size, height: size, backgroundColor: contrastInk(ink) === '#FFFFFF' ? C.text : undefined }}>
+        <Group transform={[{ translateX: size / 2 }, { translateY: size / 2 }, { scale: k }]}>
+          <DrawingNode layer={layer} />
+        </Group>
+      </Canvas>
     );
   }
   if (layer.sticker) return <Text style={{ fontSize: 20 }}>{layer.text}</Text>;

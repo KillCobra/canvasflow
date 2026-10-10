@@ -175,28 +175,67 @@ function arrange(id: LayoutId, photos: PhotoLayer[], aspect: AspectId, currentSl
 // ---------------------------------------------------------------------------
 // Grids: empty layout cells on one slide. Dropping or picking photos fills them.
 
-export type GridId = '2x2' | 'cols3' | 'rows2' | 'hero' | '3x3' | 'split';
+export type GridId =
+  | 'split'
+  | 'rows2'
+  | 'rows3'
+  | 'rows4'
+  | 'cols3'
+  | '2x2'
+  | '2x3'
+  | '3x3'
+  | 'hero'
+  | 'heroLeft'
+  | 'heroRight'
+  | 'twoThree'
+  | 'lShape'
+  | 'mosaic'
+  | 'magazine'
+  | 'filmstrip'
+  | 'offset'
+  | 'corner';
 
-export const GRIDS: { id: GridId; label: string; cells: [number, number, number, number][] }[] = [
-  // Cells as fractions of the slide's content box: [x, y, w, h].
-  { id: 'split', label: 'Split', cells: [[0, 0, 0.5, 1], [0.5, 0, 0.5, 1]] },
-  { id: 'rows2', label: 'Rows', cells: [[0, 0, 1, 0.5], [0, 0.5, 1, 0.5]] },
-  {
-    id: 'cols3',
-    label: 'Columns',
-    cells: [[0, 0, 1 / 3, 1], [1 / 3, 0, 1 / 3, 1], [2 / 3, 0, 1 / 3, 1]],
-  },
-  {
-    id: '2x2',
-    label: 'Quad',
-    cells: [[0, 0, 0.5, 0.5], [0.5, 0, 0.5, 0.5], [0, 0.5, 0.5, 0.5], [0.5, 0.5, 0.5, 0.5]],
-  },
+type Cell = [number, number, number, number];
+
+/** `cols` x `rows` equal cells, row by row. */
+const even = (cols: number, rows: number): Cell[] =>
+  Array.from({ length: rows }, (_, r) =>
+    Array.from({ length: cols }, (_, c): Cell => [c / cols, r / rows, 1 / cols, 1 / rows]),
+  ).flat();
+
+export const GRIDS: { id: GridId; label: string; cells: Cell[] }[] = [
+  // Cells as fractions of the slide's content box: [x, y, w, h]. Cells
+  // needn't fill the box: the gaps are room for a caption.
+  { id: 'split', label: 'Split', cells: even(2, 1) },
+  { id: 'rows2', label: 'Rows', cells: even(1, 2) },
+  { id: 'rows3', label: 'Three', cells: even(1, 3) },
+  { id: 'rows4', label: 'Four', cells: even(1, 4) },
+  { id: 'cols3', label: 'Columns', cells: even(3, 1) },
+  { id: '2x2', label: 'Quad', cells: even(2, 2) },
+  { id: '2x3', label: 'Six', cells: even(2, 3) },
+  { id: '3x3', label: 'Nine', cells: even(3, 3) },
   { id: 'hero', label: 'Hero', cells: [[0, 0, 1, 0.62], [0, 0.62, 0.5, 0.38], [0.5, 0.62, 0.5, 0.38]] },
+  { id: 'heroLeft', label: 'Hero L', cells: [[0, 0, 0.62, 1], [0.62, 0, 0.38, 0.5], [0.62, 0.5, 0.38, 0.5]] },
+  { id: 'heroRight', label: 'Hero R', cells: [[0, 0, 0.38, 0.5], [0, 0.5, 0.38, 0.5], [0.38, 0, 0.62, 1]] },
   {
-    id: '3x3',
-    label: 'Nine',
-    cells: [0, 1, 2].flatMap((r) => [0, 1, 2].map((c) => [c / 3, r / 3, 1 / 3, 1 / 3] as [number, number, number, number])),
+    id: 'twoThree',
+    label: '2 + 3',
+    cells: [[0, 0, 0.5, 0.55], [0.5, 0, 0.5, 0.55], [0, 0.55, 1 / 3, 0.45], [1 / 3, 0.55, 1 / 3, 0.45], [2 / 3, 0.55, 1 / 3, 0.45]],
   },
+  {
+    id: 'lShape',
+    label: 'L-shape',
+    cells: [[0, 0, 2 / 3, 2 / 3], [2 / 3, 0, 1 / 3, 1 / 3], [2 / 3, 1 / 3, 1 / 3, 1 / 3], [0, 2 / 3, 1 / 3, 1 / 3], [1 / 3, 2 / 3, 1 / 3, 1 / 3], [2 / 3, 2 / 3, 1 / 3, 1 / 3]],
+  },
+  {
+    id: 'mosaic',
+    label: 'Mosaic',
+    cells: [[0, 0, 0.6, 0.45], [0.6, 0, 0.4, 0.3], [0.6, 0.3, 0.4, 0.4], [0, 0.45, 0.35, 0.55], [0.35, 0.45, 0.25, 0.55], [0.6, 0.7, 0.4, 0.3]],
+  },
+  { id: 'magazine', label: 'Magazine', cells: [[0, 0, 1, 0.38], [0, 0.38, 0.42, 0.62], [0.42, 0.38, 0.58, 0.31], [0.42, 0.69, 0.58, 0.31]] },
+  { id: 'filmstrip', label: 'Film', cells: [[0, 0.3, 1 / 3, 0.4], [1 / 3, 0.3, 1 / 3, 0.4], [2 / 3, 0.3, 1 / 3, 0.4]] },
+  { id: 'offset', label: 'Offset', cells: [[0, 0, 0.62, 0.32], [0.38, 0.34, 0.62, 0.32], [0, 0.68, 0.62, 0.32]] },
+  { id: 'corner', label: 'Corner', cells: [[0, 0, 1, 0.7], [0.58, 0.7, 0.42, 0.3]] },
 ];
 
 /** Empty cell layers filling slide `slide`, with an outer margin and gutters. */

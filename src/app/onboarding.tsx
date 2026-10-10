@@ -1,8 +1,21 @@
-import { Canvas, Circle, Group, LinearGradient, Path, Rect, RoundedRect, Skia, rect, rrect, vec } from '@shopify/react-native-skia';
+import {
+  Canvas,
+  Circle,
+  Group,
+  Image,
+  LinearGradient,
+  Path,
+  Rect,
+  RoundedRect,
+  Skia,
+  rect,
+  rrect,
+  vec,
+} from '@shopify/react-native-skia';
 import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { FlatList, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { FlatList, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import Animated, {
   Easing,
   FadeIn,
@@ -17,8 +30,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { TemplateStrip } from '@/components/template-thumb';
 import { Icon, type IconName, PressableScale } from '@/components/ui';
-import { requestSample, setOnboarded } from '@/lib/settings';
-import { TEMPLATES } from '@/lib/templates';
+import { isScene, useSceneImage } from '@/lib/samples';
+import { requestSample, setInterests, setOnboarded } from '@/lib/settings';
+import { INTERESTS, type Interest, TEMPLATES } from '@/lib/templates';
 import { C, R, T } from '@/theme';
 
 const PAGES = [
@@ -34,17 +48,33 @@ const PAGES = [
     title: 'Post it\nyour way.',
     body: 'Save the slides in swipe order, the whole panorama, or a swipe video for Reels. No watermark, ever.',
   },
+  {
+    title: 'What will\nyou make?',
+    body: 'Pick a few and we’ll put the right templates up front.',
+  },
 ];
+
+const INTERESTS_PAGE = 3;
 
 /** First-run introduction. Skippable from every page; shown once. */
 export default function OnboardingScreen() {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const [page, setPage] = useState(0);
+  const [picks, setPicks] = useState<string[]>([]);
+  // The interests page scrolls on short screens, so it needs the pager's height.
+  const [pageHeight, setPageHeight] = useState(0);
   const list = useRef<FlatList>(null);
   const last = page === PAGES.length - 1;
 
+  const toggle = (id: string) => {
+    Haptics.selectionAsync();
+    setPicks((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
+  };
+
   const finish = (sample = false) => {
+    // Skipping keeps whatever was picked so far.
+    setInterests(picks);
     setOnboarded();
     if (sample) requestSample();
     router.back();
@@ -71,19 +101,43 @@ export default function OnboardingScreen() {
         showsHorizontalScrollIndicator={false}
         keyExtractor={(_, i) => String(i)}
         onMomentumScrollEnd={(e) => setPage(Math.round(e.nativeEvent.contentOffset.x / width))}
-        renderItem={({ item, index }) => (
-          <View style={{ width, paddingHorizontal: 28, gap: 28 }}>
-            <View style={styles.art}>
-              {index === 0 && <SwipeDemo width={width - 56} />}
-              {index === 1 && <TemplatesDemo width={width - 56} />}
-              {index === 2 && <ExportDemo />}
+        onLayout={(e) => setPageHeight(e.nativeEvent.layout.height)}
+        extraData={[picks, pageHeight]}
+        renderItem={({ item, index }) =>
+          index === INTERESTS_PAGE ? (
+            <ScrollView
+              style={{ width, height: pageHeight || undefined }}
+              contentContainerStyle={{ paddingHorizontal: 28, gap: 22, paddingBottom: 12 }}>
+              <View style={{ gap: 12 }}>
+                <Text style={styles.title}>{item.title}</Text>
+                <Text style={styles.body}>{item.body}</Text>
+              </View>
+              <View style={styles.tiles}>
+                {INTERESTS.map((interest) => (
+                  <InterestTile
+                    key={interest.id}
+                    interest={interest}
+                    width={(width - 56 - 12) / 2}
+                    selected={picks.includes(interest.id)}
+                    onPress={() => toggle(interest.id)}
+                  />
+                ))}
+              </View>
+            </ScrollView>
+          ) : (
+            <View style={{ width, paddingHorizontal: 28, gap: 28 }}>
+              <View style={styles.art}>
+                {index === 0 && <SwipeDemo width={width - 56} />}
+                {index === 1 && <TemplatesDemo width={width - 56} />}
+                {index === 2 && <ExportDemo />}
+              </View>
+              <View style={{ gap: 12 }}>
+                <Text style={styles.title}>{item.title}</Text>
+                <Text style={styles.body}>{item.body}</Text>
+              </View>
             </View>
-            <View style={{ gap: 12 }}>
-              <Text style={styles.title}>{item.title}</Text>
-              <Text style={styles.body}>{item.body}</Text>
-            </View>
-          </View>
-        )}
+          )
+        }
       />
 
       <View style={styles.footer}>
@@ -191,6 +245,48 @@ function TemplatesDemo({ width }: { width: number }) {
   );
 }
 
+/** A pickable interest, shown over one of the sample scenes. */
+function InterestTile({
+  interest,
+  width,
+  selected,
+  onPress,
+}: {
+  interest: Interest;
+  width: number;
+  selected: boolean;
+  onPress: () => void;
+}) {
+  const image = useSceneImage(isScene(interest.scene) ? interest.scene : 'sunset');
+  const height = 96;
+  return (
+    <PressableScale
+      onPress={onPress}
+      scaleTo={0.95}
+      accessibilityRole="checkbox"
+      accessibilityState={{ checked: selected }}
+      accessibilityLabel={interest.label}
+      style={[styles.tile, { width, height }, selected && styles.tileOn]}>
+      <Canvas style={StyleSheet.absoluteFill}>
+        {image && <Image image={image} x={0} y={0} width={width} height={height} fit="cover" />}
+        <Rect x={0} y={0} width={width} height={height}>
+          <LinearGradient
+            start={vec(0, 0)}
+            end={vec(0, height)}
+            colors={selected ? ['#0A0A0A10', '#0A0A0AB0'] : ['#0A0A0A40', '#0A0A0AD0']}
+          />
+        </Rect>
+      </Canvas>
+      <Text style={styles.tileLabel} numberOfLines={2}>
+        {interest.label}
+      </Text>
+      <View style={[styles.check, selected && styles.checkOn]}>
+        {selected && <Icon name={{ ios: 'checkmark', android: 'check' }} size={12} color={C.accentInk} />}
+      </View>
+    </PressableScale>
+  );
+}
+
 function ExportDemo() {
   const rows: { icon: IconName; title: string; detail: string }[] = [
     { icon: { ios: 'rectangle.split.3x1', android: 'view_carousel' }, title: 'Carousel', detail: 'Slides in swipe order' },
@@ -228,6 +324,31 @@ const styles = StyleSheet.create({
   cta: { height: 54, borderRadius: R.pill, backgroundColor: C.text, alignItems: 'center', justifyContent: 'center' },
   ctaText: { ...T.semibold, color: C.bg, fontSize: 16 },
   secondary: { ...T.medium, color: C.accent, fontSize: 15, textAlign: 'center' },
+  tiles: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
+  tile: {
+    borderRadius: R.md,
+    overflow: 'hidden',
+    backgroundColor: C.surfaceHi,
+    borderWidth: 2,
+    borderColor: 'transparent',
+    justifyContent: 'flex-end',
+    padding: 12,
+  },
+  tileOn: { borderColor: C.accent },
+  tileLabel: { ...T.semibold, fontSize: 15, lineHeight: 19 },
+  check: {
+    position: 'absolute',
+    top: 9,
+    right: 9,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 1.5,
+    borderColor: '#F2EFE9B3',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkOn: { backgroundColor: C.accent, borderColor: C.accent },
   exportRow: {
     flexDirection: 'row',
     alignItems: 'center',

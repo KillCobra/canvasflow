@@ -1,7 +1,7 @@
-import { Canvas, Path, Skia } from '@shopify/react-native-skia';
+import { Canvas, Group, Path, Skia } from '@shopify/react-native-skia';
 import * as Haptics from 'expo-haptics';
 import { useEffect, useState } from 'react';
-import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Linking, Platform, Pressable, Share, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import Animated, {
   FadeIn,
   FadeOut,
@@ -14,41 +14,114 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { type ExportMode, type ExportProgress, type ExportResult, exportToPhotos } from '@/lib/export';
+import {
+  type ExportMode,
+  type ExportProgress,
+  type ExportResult,
+  type ShareTarget,
+  exportForShare,
+  exportToPhotos,
+} from '@/lib/export';
+import { layersOnSlide } from '@/lib/geometry';
+import { useSkImages } from '@/lib/images';
+import { templateLink } from '@/lib/template-link';
 import { ASPECTS, type Doc, SLIDE_WIDTH } from '@/lib/types';
 import { C, R, T } from '@/theme';
 
 import { isVideoExportAvailable } from '../../modules/seam-video-export';
 
+import { DocRenderer } from './doc-renderer';
 import { Eyebrow, Icon, type IconName, PressableScale } from './ui';
+
+type App = 'instagram' | 'tiktok';
 
 type State =
   | { step: 'choose' }
+  | { step: 'share' }
   | { step: 'saving'; progress: ExportProgress }
-  | { step: 'saved'; result: ExportResult; mode: ExportMode }
+  | { step: 'saved'; result: ExportResult; mode: ExportMode; app?: App }
   | { step: 'error'; message: string };
+
+/**
+ * Apps to hand off to after saving. openURL (unlike canOpenURL) needs no
+ * LSApplicationQueriesSchemes entry, so each scheme is just tried in turn
+ * and the website is the last resort.
+ */
+const APPS: Record<App, { label: string; urls: string[]; web: string }> = {
+  instagram: { label: 'Instagram', urls: ['instagram://library'], web: 'https://www.instagram.com/' },
+  tiktok: { label: 'TikTok', urls: ['tiktok://', 'snssdk1233://'], web: 'https://www.tiktok.com/' },
+};
+
+async function openApp(app: App) {
+  for (const url of APPS[app].urls) {
+    try {
+      await Linking.openURL(url);
+      return;
+    } catch {
+      // Not installed (or no such scheme): try the next.
+    }
+  }
+  Linking.openURL(APPS[app].web).catch(() => {});
+}
 
 export function ExportSheet({ doc, onClose }: { doc: Doc; onClose: () => void }) {
   const insets = useSafeAreaInsets();
   const [state, setState] = useState<State>({ step: 'choose' });
+  const [page, setPage] = useState(0);
   const H = ASPECTS[doc.aspect].height;
-  const videoSlides = countVideoSlides(doc);
+  const videoSlides = videoSlideSet(doc);
   const canEncode = isVideoExportAvailable();
+  const canSwipe = canEncode && doc.slideCount >= 2;
+  const slide = Math.min(page, doc.slideCount - 1);
 
-  const run = async (mode: ExportMode) => {
+  const fail = (e: unknown) => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    setState({ step: 'error', message: e instanceof Error ? e.message : String(e) });
+  };
+
+  /** Saves to Photos, then (for the app buttons) opens the app on its library. */
+  const save = async (mode: ExportMode, app?: App) => {
     const total = mode === 'slides' ? doc.slideCount : 1;
     setState({ step: 'saving', progress: { done: 0, total, current: 1, video: false } });
     try {
       const result = await exportToPhotos(doc, mode, (progress) => setState({ step: 'saving', progress }));
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      setState({ step: 'saved', result, mode });
+      setState({ step: 'saved', result, mode, app });
+      if (app) openApp(app);
     } catch (e) {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      setState({ step: 'error', message: e instanceof Error ? e.message : String(e) });
+      fail(e);
+    }
+  };
+
+  /** Renders one file and opens the system share sheet with it. */
+  const share = async (target: ShareTarget) => {
+    setState({
+      step: 'saving',
+      progress: { done: 0, total: 1, current: 1, video: target.kind === 'swipe', label: 'Preparing to share' },
+    });
+    try {
+      const uri = await exportForShare(doc, target, (progress) =>
+        setState({ step: 'saving', progress: { ...progress, label: progress.label ?? 'Preparing to share' } }),
+      );
+      setState({ step: 'choose' });
+      // iOS shares the file itself; Android's share sheet only takes text.
+      await Share.share(Platform.OS === 'ios' ? { url: uri } : { message: uri });
+    } catch (e) {
+      fail(e);
+    }
+  };
+
+  const shareTemplate = async () => {
+    try {
+      const url = templateLink(doc);
+      await Share.share(Platform.OS === 'ios' ? { url } : { message: url });
+    } catch (e) {
+      fail(e);
     }
   };
 
   const busy = state.step === 'saving';
+  const choosing = state.step === 'choose' || state.step === 'share';
 
   return (
     <Animated.View entering={FadeIn.duration(180)} exiting={FadeOut.duration(160)} style={[StyleSheet.absoluteFill, styles.backdrop]}>
@@ -59,49 +132,90 @@ export function ExportSheet({ doc, onClose }: { doc: Doc; onClose: () => void })
         style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 16) + 8 }]}>
         <View style={styles.grabber} />
 
-        {state.step === 'choose' && (
-          <View style={{ gap: 12 }}>
+        {choosing && (
+          <View style={{ gap: 14 }}>
             <View style={styles.titleRow}>
-              <Text style={styles.title}>Export</Text>
-              <Text style={styles.meta}>
-                {doc.slideCount} slides · {SLIDE_WIDTH}×{H}
-              </Text>
+              <Text style={styles.title}>{state.step === 'share' ? 'Share' : 'Export'}</Text>
+              {state.step === 'share' ? (
+                <Pressable onPress={() => setState({ step: 'choose' })} hitSlop={10}>
+                  <Text style={[styles.link, { paddingVertical: 0 }]}>Back</Text>
+                </Pressable>
+              ) : (
+                <Text style={styles.meta}>
+                  {doc.slideCount} slides · {SLIDE_WIDTH}×{H}
+                </Text>
+              )}
             </View>
-            <Option
-              icon={{ ios: 'rectangle.split.3x1', android: 'view_carousel' }}
-              title="Carousel"
-              detail={
-                videoSlides > 0
-                  ? canEncode
-                    ? `Saved in swipe order · ${videoSlides} as video`
-                    : 'Saved in swipe order · video slides as stills'
-                  : 'Saved in swipe order, ready for Instagram'
-              }
-              onPress={() => run('slides')}
-              primary
-            />
-            <Option
-              icon={{ ios: 'pano', android: 'panorama' }}
-              title="Panorama"
-              detail="The whole canvas as one wide image"
-              onPress={() => run('strip')}
-            />
+            <SlidePager doc={doc} page={slide} onPage={setPage} />
+          </View>
+        )}
+
+        {state.step === 'choose' && (
+          <View style={{ gap: 14 }}>
+            <View style={styles.quickRow}>
+              <QuickAction
+                icon={{ ios: 'square.and.arrow.down', android: 'download' }}
+                label="Save"
+                primary
+                onPress={() => save('slides')}
+              />
+              <QuickAction
+                icon={{ ios: 'camera', android: 'photo_camera' }}
+                label="Instagram"
+                onPress={() => save('slides', 'instagram')}
+              />
+              <QuickAction
+                icon={{ ios: 'music.note', android: 'music_note' }}
+                label="TikTok"
+                onPress={() => save('slides', 'tiktok')}
+              />
+              <QuickAction
+                icon={{ ios: 'square.and.arrow.up', android: 'ios_share' }}
+                label="Share…"
+                onPress={() => setState({ step: 'share' })}
+              />
+              <QuickAction icon={{ ios: 'link', android: 'link' }} label="Template" onPress={shareTemplate} />
+            </View>
+
+            <Eyebrow style={{ paddingHorizontal: 2 }}>Save as</Eyebrow>
+            <View style={styles.pair}>
+              <Option
+                compact
+                icon={{ ios: 'rectangle.split.3x1', android: 'view_carousel' }}
+                title="Carousel"
+                detail={
+                  videoSlides.size > 0
+                    ? canEncode
+                      ? `${videoSlides.size} as video`
+                      : 'Video as stills'
+                    : 'In swipe order'
+                }
+                onPress={() => save('slides')}
+              />
+              <Option
+                compact
+                icon={{ ios: 'pano', android: 'panorama' }}
+                title="Panorama"
+                detail="One wide image"
+                onPress={() => save('strip')}
+              />
+            </View>
             <View style={styles.pair}>
               <Option
                 compact
                 icon={{ ios: 'hand.draw', android: 'swipe' }}
                 title="Swipe video"
                 detail="Post size"
-                disabled={!canEncode || doc.slideCount < 2}
-                onPress={() => run('swipe')}
+                disabled={!canSwipe}
+                onPress={() => save('swipe')}
               />
               <Option
                 compact
                 icon={{ ios: 'play.rectangle', android: 'movie' }}
                 title="Reel 9:16"
                 detail="Reels · TikTok"
-                disabled={!canEncode || doc.slideCount < 2}
-                onPress={() => run('reel')}
+                disabled={!canSwipe}
+                onPress={() => save('reel')}
               />
             </View>
             {!canEncode && (
@@ -109,6 +223,30 @@ export function ExportSheet({ doc, onClose }: { doc: Doc; onClose: () => void })
                 Video export needs the Seam app build. In Expo Go, swipe videos are off and video slides save as a still.
               </Text>
             )}
+          </View>
+        )}
+
+        {state.step === 'share' && (
+          <View style={{ gap: 10 }}>
+            <Option
+              icon={{ ios: 'rectangle.portrait', android: 'crop_portrait' }}
+              title={`Slide ${slide + 1}`}
+              detail={videoSlides.has(slide) && canEncode ? 'This slide, as a video' : 'The slide you’re looking at'}
+              onPress={() => share({ kind: 'slide', index: slide })}
+            />
+            <Option
+              icon={{ ios: 'pano', android: 'panorama' }}
+              title="Panorama"
+              detail="The whole canvas as one wide image"
+              onPress={() => share({ kind: 'strip' })}
+            />
+            <Option
+              icon={{ ios: 'hand.draw', android: 'swipe' }}
+              title="Swipe video"
+              detail={canEncode ? 'Plays through every slide' : 'Needs the Seam app build'}
+              disabled={!canSwipe}
+              onPress={() => share({ kind: 'swipe' })}
+            />
           </View>
         )}
 
@@ -121,15 +259,19 @@ export function ExportSheet({ doc, onClose }: { doc: Doc; onClose: () => void })
             </Animated.View>
             <Text style={[styles.title, { textAlign: 'center' }]}>Saved to Photos</Text>
             <Text style={styles.detail}>{savedLine(state.result)}</Text>
-            <Option
-              icon={{ ios: 'camera', android: 'photo_camera' }}
-              title="Open Instagram"
-              detail={state.mode === 'reel' ? 'Share it as a Reel' : state.mode === 'swipe' ? 'Post it as a video' : 'Pick them in order for a new post'}
-              primary
-              onPress={() =>
-                Linking.openURL('instagram://library').catch(() => Linking.openURL('https://instagram.com'))
-              }
-            />
+            <View style={styles.pair}>
+              {(['instagram', 'tiktok'] as const).map((app) => (
+                <Option
+                  key={app}
+                  compact
+                  primary={state.app === app || (!state.app && app === 'instagram')}
+                  icon={app === 'instagram' ? { ios: 'camera', android: 'photo_camera' } : { ios: 'music.note', android: 'music_note' }}
+                  title={APPS[app].label}
+                  detail={nextStep(state.mode, app)}
+                  onPress={() => openApp(app)}
+                />
+              ))}
+            </View>
             <Pressable onPress={onClose} hitSlop={8}>
               <Text style={styles.link}>Done</Text>
             </Pressable>
@@ -138,7 +280,7 @@ export function ExportSheet({ doc, onClose }: { doc: Doc; onClose: () => void })
 
         {state.step === 'error' && (
           <View style={styles.center}>
-            <Text style={[styles.title, { textAlign: 'center' }]}>Export failed</Text>
+            <Text style={[styles.title, { textAlign: 'center' }]}>That didn’t work</Text>
             <Text style={styles.detail}>{state.message}</Text>
             <Pressable onPress={() => setState({ step: 'choose' })} hitSlop={8}>
               <Text style={styles.link}>Try again</Text>
@@ -150,6 +292,12 @@ export function ExportSheet({ doc, onClose }: { doc: Doc; onClose: () => void })
   );
 }
 
+function nextStep(mode: ExportMode, app: App) {
+  if (mode === 'reel') return app === 'instagram' ? 'Post as a Reel' : 'Post the video';
+  if (mode === 'swipe') return 'Post the video';
+  return app === 'instagram' ? 'Pick them in order' : 'Post as photos';
+}
+
 function savedLine(r: ExportResult) {
   const parts = [`${r.saved} ${r.saved === 1 ? 'file' : 'files'}`];
   if (r.videos) parts.push(`${r.videos} video`);
@@ -157,7 +305,8 @@ function savedLine(r: ExportResult) {
   return parts.join(' · ');
 }
 
-function countVideoSlides(doc: Doc) {
+/** Slides with a video clip on them. */
+function videoSlideSet(doc: Doc) {
   const slides = new Set<number>();
   for (const l of doc.layers) {
     if (l.type !== 'photo' || !l.video || !l.src) continue;
@@ -166,7 +315,107 @@ function countVideoSlides(doc: Doc) {
     const b = Math.min(doc.slideCount - 1, Math.floor((l.x + half) / SLIDE_WIDTH));
     for (let i = a; i <= b; i++) slides.add(i);
   }
-  return slides.size;
+  return slides;
+}
+
+const PAGE_GAP = 12;
+
+/**
+ * Every slide drawn small, one per page with its neighbours peeking in, so
+ * the post can be checked one last time. Drawn live from the doc with the
+ * editor's cached previews, so it costs nothing to open.
+ */
+function SlidePager({ doc, page, onPage }: { doc: Doc; page: number; onPage: (page: number) => void }) {
+  const { width: screenW, height: screenH } = useWindowDimensions();
+  const images = useSkImages(doc.id, doc.layers);
+  const H = ASPECTS[doc.aspect].height;
+  const k = Math.min(((screenW - 36) * 0.72) / SLIDE_WIDTH, Math.min(240, screenH * 0.24) / H);
+  const w = SLIDE_WIDTH * k;
+  const h = H * k;
+  const step = w + PAGE_GAP;
+  const visible = doc.layers.filter((l) => !l.hidden);
+  const pages = Array.from({ length: doc.slideCount }, (_, i) => i);
+
+  return (
+    <View style={{ gap: 12 }}>
+      <FlatList
+        data={pages}
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        snapToInterval={step}
+        decelerationRate="fast"
+        disableIntervalMomentum
+        keyExtractor={(i) => String(i)}
+        windowSize={5}
+        initialNumToRender={3}
+        getItemLayout={(_, index) => ({ length: step, offset: step * index, index })}
+        // Bleeds to the sheet's edges so neighbours peek in from both sides;
+        // each item carries the gap after it, so page i sits at i * step.
+        style={{ marginHorizontal: -18, flexGrow: 0 }}
+        contentContainerStyle={{ paddingLeft: (screenW - w) / 2, paddingRight: (screenW - w) / 2 - PAGE_GAP }}
+        scrollEventThrottle={32}
+        onScroll={(e) => onPage(Math.max(0, Math.min(doc.slideCount - 1, Math.round(e.nativeEvent.contentOffset.x / step))))}
+        extraData={[images, page]}
+        renderItem={({ item: i }) => (
+          <View style={{ width: step }}>
+            <View style={[styles.page, { width: w, height: h }, i !== page && { opacity: 0.55 }]}>
+              <Canvas style={{ width: w, height: h }}>
+                <Group transform={[{ scale: k }, { translateX: -i * SLIDE_WIDTH }]}>
+                  <DocRenderer doc={doc} images={images} layers={layersOnSlide(visible, i, SLIDE_WIDTH, true)} />
+                </Group>
+              </Canvas>
+            </View>
+          </View>
+        )}
+      />
+      <View style={styles.pagerFoot}>
+        <View style={styles.dots}>
+          {pages.map((i) => (
+            <View key={i} style={[styles.dot, i === page && styles.dotOn]} />
+          ))}
+        </View>
+        <Text style={styles.counter}>
+          {page + 1} / {doc.slideCount}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+/** Round shortcut with a label under it. */
+function QuickAction({
+  icon,
+  label,
+  onPress,
+  primary,
+}: {
+  icon: IconName;
+  label: string;
+  onPress: () => void;
+  primary?: boolean;
+}) {
+  // flex lives on a wrapper: on PressableScale it lands on the inner view,
+  // whose zero flex-basis collapses the row's height.
+  return (
+    <View style={{ flex: 1 }}>
+      <PressableScale
+        accessibilityRole="button"
+        accessibilityLabel={label}
+        scaleTo={0.92}
+        onPress={() => {
+          Haptics.selectionAsync();
+          onPress();
+        }}
+        style={styles.quick}>
+        <View style={[styles.quickIcon, primary && { backgroundColor: C.accent }]}>
+          <Icon name={icon} size={21} color={primary ? C.accentInk : C.text} />
+        </View>
+        <Text style={styles.quickLabel} numberOfLines={1}>
+          {label}
+        </Text>
+      </PressableScale>
+    </View>
+  );
 }
 
 const RING = 96;
@@ -227,13 +476,17 @@ function Option({
       onPress={onPress}
       disabled={disabled}
       scaleTo={0.98}
-      style={[styles.option, primary && styles.optionPrimary, compact && { gap: 10 }, disabled && { opacity: 0.4 }]}>
-      <View style={[styles.optionIcon, primary && { backgroundColor: '#16120B14' }]}>
-        <Icon name={icon} size={22} color={primary ? C.accentInk : C.text} />
+      style={[styles.option, primary && styles.optionPrimary, compact && styles.optionCompact, disabled && { opacity: 0.4 }]}>
+      <View style={[styles.optionIcon, primary && { backgroundColor: '#16120B14' }, compact && styles.optionIconCompact]}>
+        <Icon name={icon} size={compact ? 19 : 22} color={primary ? C.accentInk : C.text} />
       </View>
       <View style={{ flex: 1 }}>
-        <Text style={[styles.optionTitle, primary && { color: C.accentInk }]}>{title}</Text>
-        <Text style={[styles.optionDetail, primary && { color: '#16120BAA' }]}>{detail}</Text>
+        <Text style={[styles.optionTitle, primary && { color: C.accentInk }]} numberOfLines={1}>
+          {title}
+        </Text>
+        <Text style={[styles.optionDetail, primary && { color: '#16120BAA' }]} numberOfLines={compact ? 1 : 2}>
+          {detail}
+        </Text>
       </View>
       {!compact && (
         <Icon name={{ ios: 'chevron.right', android: 'chevron_right' }} size={14} color={primary ? C.accentInk : C.textDim} />
@@ -272,6 +525,29 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  page: {
+    borderRadius: 8,
+    overflow: 'hidden',
+    backgroundColor: C.surfaceHi,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: C.line,
+  },
+  pagerFoot: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12 },
+  dots: { flexDirection: 'row', gap: 5, flexWrap: 'wrap', justifyContent: 'center', maxWidth: 200 },
+  dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: C.line },
+  dotOn: { backgroundColor: C.accent },
+  counter: { ...T.medium, color: C.textDim, fontSize: 12, fontVariant: ['tabular-nums'] },
+  quickRow: { flexDirection: 'row', justifyContent: 'space-between' },
+  quick: { alignItems: 'center', gap: 7 },
+  quickIcon: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: C.surfaceHi,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  quickLabel: { ...T.medium, color: C.textDim, fontSize: 11, letterSpacing: 0.2 },
   option: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -280,6 +556,7 @@ const styles = StyleSheet.create({
     borderRadius: R.lg,
     backgroundColor: C.surfaceHi,
   },
+  optionCompact: { gap: 10, padding: 12, borderRadius: R.md + 2 },
   optionPrimary: { backgroundColor: C.accent },
   optionIcon: {
     width: 44,
@@ -289,8 +566,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  optionTitle: { ...T.semibold, fontSize: 16 },
-  optionDetail: { ...T.body, color: C.textDim, fontSize: 13, marginTop: 2 },
+  optionIconCompact: { width: 38, height: 38, borderRadius: 12 },
+  optionTitle: { ...T.semibold, fontSize: 15 },
+  optionDetail: { ...T.body, color: C.textDim, fontSize: 12, marginTop: 2 },
   ringLabel: { ...StyleSheet.absoluteFill, alignItems: 'center', justifyContent: 'center' },
   percent: { ...T.display, fontSize: 30, fontVariant: ['tabular-nums'] },
   link: { ...T.semibold, color: C.accent, fontSize: 16, textAlign: 'center', paddingVertical: 6 },

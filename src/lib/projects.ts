@@ -225,3 +225,56 @@ export async function renameProject(id: string, name: string) {
   const doc = await loadProject(id);
   if (doc) saveProject({ ...doc, name, updatedAt: Date.now() });
 }
+
+// ---------------------------------------------------------------------------
+// Folders. Names live in documents/folders.json; each project keeps its
+// folder id on the doc, so duplicates and edits carry it along.
+
+export type Folder = { id: string; name: string };
+
+const foldersFile = () => new File(Paths.document, 'folders.json');
+
+export function listFolders(): Folder[] {
+  try {
+    if (!foldersFile().exists) return [];
+    const list: unknown = JSON.parse(foldersFile().textSync());
+    if (!Array.isArray(list)) return [];
+    return list.filter((f): f is Folder => typeof f?.id === 'string' && typeof f?.name === 'string');
+  } catch {
+    return [];
+  }
+}
+
+function saveFolders(list: Folder[]) {
+  foldersFile().write(JSON.stringify(list));
+}
+
+export function createFolder(name: string): Folder {
+  const folder = { id: uid(), name };
+  saveFolders([...listFolders(), folder]);
+  return folder;
+}
+
+export function renameFolder(id: string, name: string) {
+  saveFolders(listFolders().map((f) => (f.id === id ? { ...f, name } : f)));
+}
+
+/**
+ * Moves a project into a folder, or back to All with null. Leaves updatedAt
+ * alone so filing a carousel doesn't reshuffle the grid.
+ */
+export async function moveToFolder(projectId: string, folder: string | null) {
+  const doc = await loadProject(projectId);
+  if (!doc) return;
+  const next: Doc = { ...doc, folder: folder ?? undefined };
+  if (!folder) delete next.folder;
+  saveProject(next);
+}
+
+/** Removes the folder; its projects go back to All. */
+export async function deleteFolder(id: string) {
+  saveFolders(listFolders().filter((f) => f.id !== id));
+  for (const { doc } of await listProjects()) {
+    if (doc.folder === id) await moveToFolder(doc.id, null);
+  }
+}

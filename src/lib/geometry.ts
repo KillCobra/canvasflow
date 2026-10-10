@@ -1,4 +1,4 @@
-import type { Layer, PhotoLayer } from './types';
+import type { FrameShape, Layer, PhotoLayer } from './types';
 
 /** Axis-aligned bounds of a layer after scale and rotation, in canvas coordinates. */
 export function bounds(l: Pick<Layer, 'x' | 'y' | 'w' | 'h' | 'scale' | 'rotation'>) {
@@ -47,14 +47,40 @@ export function homeSlide(l: Layer, slideWidth: number) {
   return b.left >= k * slideWidth - 2 && b.right <= (k + 1) * slideWidth + 2 ? k : -1;
 }
 
-/** Where the image sits inside a photo frame (local coords). Polaroids inset it into a card. */
+/**
+ * Frames drawn as a card or strip with the photo in an inset window
+ * (polaroid, taped print, film strip, postage stamp).
+ */
+export const isCardFrame = (f: FrameShape | undefined) =>
+  f === 'polaroid' || f === 'taped' || f === 'film' || f === 'stamp';
+
+/** Thickness of a film strip's sprocket bands, which run along its long side. */
+export const filmBand = (w: number, h: number) => Math.min(w, h) * 0.13;
+
+/** Radius of a stamp's perforation bites. */
+export const stampBite = (w: number, h: number) => Math.max(3, Math.min(w, h) * 0.022);
+
+/** Where the image sits inside a photo frame (local coords). Card frames inset it. */
 export function frameInner(l: Pick<PhotoLayer, 'w' | 'h' | 'frame'>) {
   const x = -l.w / 2;
   const y = -l.h / 2;
-  if (l.frame === 'polaroid') {
-    const m = Math.min(l.w, l.h) * 0.06;
+  const min = Math.min(l.w, l.h);
+  if (l.frame === 'polaroid' || l.frame === 'taped') {
+    const m = min * 0.06;
     const bottom = Math.min(l.h * 0.24, m * 3.6);
     return { x: x + m, y: y + m, width: l.w - m * 2, height: l.h - m - bottom };
+  }
+  if (l.frame === 'film') {
+    const band = filmBand(l.w, l.h);
+    const side = min * 0.03;
+    return l.w >= l.h
+      ? { x: x + side, y: y + band, width: l.w - side * 2, height: l.h - band * 2 }
+      : { x: x + band, y: y + side, width: l.w - band * 2, height: l.h - side * 2 };
+  }
+  if (l.frame === 'stamp') {
+    // Paper margin past the perforation.
+    const m = stampBite(l.w, l.h) + min * 0.06;
+    return { x: x + m, y: y + m, width: l.w - m * 2, height: l.h - m * 2 };
   }
   return { x, y, width: l.w, height: l.h };
 }

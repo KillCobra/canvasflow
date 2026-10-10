@@ -16,6 +16,7 @@ import { allFonts, fontInfo, importFont, useFontsVersion } from '@/lib/fonts';
 import type { TextLayer } from '@/lib/types';
 import { C, PALETTE, R, T } from '@/theme';
 
+import { BrandColors } from './brand-colors';
 import { Chip, HScroll, IconButton, Swatch } from './ui';
 
 export type TextValues = Pick<TextLayer, 'text' | 'font' | 'color' | 'align' | 'fill'>;
@@ -144,6 +145,7 @@ export function TextEditor({
             />
           </HScroll>
           <HScroll gap={2}>
+            <BrandColors current={accentColor} onPick={pickColor} />
             {PALETTE.map((c) => (
               <Swatch key={c} color={c} size={28} selected={accentColor === c} onPress={() => pickColor(c)} />
             ))}

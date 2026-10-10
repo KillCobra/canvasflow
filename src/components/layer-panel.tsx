@@ -10,7 +10,9 @@ import { measureText } from '@/lib/text';
 import type { Adjust, FrameShape, Layer, PhotoLayer, TextLayer } from '@/lib/types';
 import { C, PALETTE, R, T } from '@/theme';
 
+import { BrandColors } from './brand-colors';
 import { ColorWell } from './color-well';
+import { DRAWING_TABS, DrawingColors } from './drawing-panel';
 import { AlignRow } from './multi-panel';
 import { PanelHeader } from './panels';
 import { Chip, HScroll, IconButton, Slider, Swatch, ToolButton } from './ui';
@@ -45,6 +47,7 @@ function tabsFor(layer: Layer): LayerTab[] {
     ];
   }
   if (layer.type === 'shape') return ['color', 'corners', 'align', 'opacity'];
+  if (layer.type === 'drawing') return [...DRAWING_TABS];
   return layer.sticker ? ['align', 'opacity'] : ['color', 'style', 'align', 'opacity'];
 }
 
@@ -53,7 +56,18 @@ const FRAMES: { id: FrameShape; label: string }[] = [
   { id: 'circle', label: 'Circle' },
   { id: 'arch', label: 'Arch' },
   { id: 'polaroid', label: 'Polaroid' },
+  { id: 'taped', label: 'Taped' },
+  { id: 'film', label: 'Film' },
+  { id: 'stamp', label: 'Stamp' },
 ];
+
+/** Card colour a decorative frame starts with (the swatches recolour it via borderColor). */
+const CARD_COLOR: Partial<Record<FrameShape, string>> = {
+  polaroid: '#FFFFFF',
+  taped: '#FFFFFF',
+  stamp: '#FFFFFF',
+  film: '#141414',
+};
 
 type StyleKey = 'spacing' | 'outline' | 'curve' | 'background' | 'shadow';
 const STYLE_KEYS: { key: StyleKey; label: string }[] = [
@@ -214,9 +228,11 @@ export function LayerPanel({
                   onPress={() =>
                     patch({
                       frame: f.id,
-                      // Circles look best square; polaroids get a white card.
+                      // Circles look best square; card frames start on their own card colour.
                       ...(f.id === 'circle' ? { w: Math.min(photo.w, photo.h), h: Math.min(photo.w, photo.h) } : {}),
-                      ...(f.id === 'polaroid' && photo.frame !== 'polaroid' ? { borderColor: '#FFFFFF', shadow: true } : {}),
+                      ...(CARD_COLOR[f.id] && photo.frame !== f.id
+                        ? { borderColor: CARD_COLOR[f.id], shadow: f.id !== 'film' || !!photo.shadow }
+                        : {}),
                     } as Partial<Layer>)
                   }
                   style={{ height: 28 }}
@@ -226,6 +242,11 @@ export function LayerPanel({
             <Slider label={photo.cutout ? 'Outline' : 'Border'} value={photo.border} min={0} max={80} onChange={(v) => patch({ border: v }, 'border')} />
             <HScroll gap={2}>
               <Chip label="Shadow" selected={!!photo.shadow} onPress={() => patch({ shadow: !photo.shadow } as Partial<Layer>)} style={{ height: 30, marginRight: 8 }} />
+              <BrandColors
+                current={photo.borderColor}
+                size={24}
+                onPick={(c) => patch({ borderColor: c, border: photo.border || 20 } as Partial<Layer>)}
+              />
               {PALETTE.slice(0, 9).map((c) => (
                 <Swatch key={c} color={c} size={24} selected={photo.borderColor === c} onPress={() => patch({ borderColor: c, border: photo.border || 20 } as Partial<Layer>)} />
               ))}
@@ -264,6 +285,11 @@ export function LayerPanel({
               <View>
                 <HScroll gap={2}>
                   <Chip label="Off" selected={!layer.outline} onPress={() => patchText({ outline: null })} style={{ height: 30, marginRight: 6 }} />
+                  <BrandColors
+                    current={layer.outline?.color}
+                    size={24}
+                    onPick={(c) => patchText({ outline: { color: c, width: layer.outline?.width ?? 0.05 } })}
+                  />
                   {OUTLINE_COLORS.map((c) => (
                     <Swatch
                       key={c}
@@ -329,6 +355,8 @@ export function LayerPanel({
           </View>
         )}
 
+        {activeTab === 'color' && layer.type === 'drawing' && <DrawingColors layer={layer} />}
+
         {activeTab === 'color' && (layer.type === 'text' || layer.type === 'shape') && (
           <HScroll gap={2}>
             <ColorWell
@@ -337,6 +365,14 @@ export function LayerPanel({
                 layer.type === 'text' && layer.fill
                   ? patch({ fill: c, color: contrastInk(c) } as Partial<Layer>, 'color')
                   : patch({ color: c } as Partial<Layer>, 'color')
+              }
+            />
+            <BrandColors
+              current={layer.type === 'text' ? (layer.fill ?? layer.color) : layer.color}
+              onPick={(c) =>
+                layer.type === 'text' && layer.fill
+                  ? patch({ fill: c, color: contrastInk(c) } as Partial<Layer>)
+                  : patch({ color: c } as Partial<Layer>)
               }
             />
             {PALETTE.map((c) => {
