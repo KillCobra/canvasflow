@@ -19,6 +19,8 @@ import { drawingFromStrokes } from '@/components/drawing-node';
 import { EditorCanvas, type LiveTransform, PAD_X, viewMetrics } from '@/components/editor-canvas';
 import { EditorOptions } from '@/components/editor-options';
 import { BrandApplySheet } from '@/components/brand-apply-sheet';
+import { useNamePrompt } from '@/components/menu-sheet';
+import { ShuffleSheet } from '@/components/shuffle-sheet';
 import { ExportSheet } from '@/components/export-sheet';
 import {
   BackgroundPanel,
@@ -35,7 +37,11 @@ import { OverviewBar, SlideOverview } from '@/components/slide-overview';
 import { SlidesPanel } from '@/components/slides-panel';
 import { TextEditor, type TextValues } from '@/components/text-editor';
 import { Glass, Icon, IconButton, type IconName, PressableScale } from '@/components/ui';
-import { type BrandImage, brandAssetUri, brandLogoUri } from '@/lib/brand';
+import { type BrandImage, brandAssetUri, brandColors, brandKitData, brandLogoUri, brandLogos } from '@/lib/brand';
+import { endCardLayers } from '@/lib/end-card';
+import { createCoverCarousel, refreshCovers, unlinkCover } from '@/lib/grid-covers';
+import { saveAsTemplate } from '@/lib/my-templates';
+import { type DoodleShape, doodle, doodleStrokes } from '@/lib/template-kit';
 import { contrastInk } from '@/lib/color';
 import { useEditorPrefs } from '@/lib/editor-prefs';
 import { updateThumbnail } from '@/lib/export';
@@ -61,6 +67,7 @@ import {
   ASPECTS,
   type Crop,
   type Doc,
+  type DrawingLayer,
   type Layer,
   MAX_SLIDES,
   type PhotoLayer,
@@ -104,6 +111,8 @@ export default function EditorScreen() {
   const [importing, setImporting] = useState<string | false>(false);
   const [exporting, setExporting] = useState(false);
   const [branding, setBranding] = useState(false);
+  const [shuffling, setShuffling] = useState(false);
+  const [prompt, promptElement] = useNamePrompt();
   const [cropId, setCropId] = useState<string | null>(null);
   const [slidesFocus, setSlidesFocus] = useState(0);
   /** Slide overview; the number is the slide that was in view when it opened. */
@@ -130,8 +139,11 @@ export default function EditorScreen() {
     return () => {
       alive = false;
       clearTimeout(saveTimer.current);
+      // Another editor may already have opened its project (switching between a
+      // grid puzzle and its cover carousel); only tidy up our own.
       const last = useEditor.getState().doc;
-      if (last && !finished.current) finishProject(last).catch(() => {});
+      if (last?.id !== id) return;
+      if (!finished.current) finishProject(last).catch(() => {});
       close();
     };
   }, [id, open, close]);
@@ -519,6 +531,75 @@ export default function EditorScreen() {
     setText(null);
   };
 
+  /** A hand-drawn ink doodle in the brand's lead colour (or ink that shows on the page). */
+  const addDoodle = (shape: DoodleShape) => {
+    const sizes: Record<DoodleShape, [number, number, number]> = {
+      arrow: [360, 170, 14],
+      underline: [440, 60, 14],
+      circle: [440, 300, 12],
+      heart: [220, 200, 16],
+      star: [240, 240, 14],
+      sparkle: [170, 170, 10],
+      route: [620, 80, 18],
+      squiggle: [440, 100, 14],
+    };
+    const [w, h, width] = sizes[shape];
+    const k = grid ? 2 : 1;
+    const color = brandColors()[0] ?? contrastInk(bgColor);
+    const ink = doodleStrokes(doodle(shape, 0, 0, w * k, h * k, color, { width: width * k }));
+    const layer: DrawingLayer = {
+      id: uid(),
+      type: 'drawing',
+      strokes: ink.strokes,
+      x: slideCenter(),
+      y: centerY,
+      w: ink.w,
+      h: ink.h,
+      scale: 1,
+      rotation: 0,
+      opacity: 1,
+    };
+    addLayers([layer]);
+    select(layer.id);
+    setPanel(null);
+  };
+
+  /** Appends the brand end card (logo, name, handle, follow pill) as a new last slide. */
+  const addEndCard = async () => {
+    const latest = useEditor.getState().doc ?? doc;
+    if (latest.slideCount >= MAX_SLIDES) {
+      Alert.alert('No room for another slide', `A carousel can have up to ${MAX_SLIDES} slides.`);
+      return;
+    }
+    const kit = brandKitData();
+    const logo = brandLogos()[0];
+    let imported: { src: string; aspect: number } | undefined;
+    try {
+      if (logo) imported = { src: await importBrandLogo(latest.id, brandLogoUri(logo)), aspect: logo.width / logo.height };
+    } catch {
+      // The card still works without the logo.
+    }
+    const at = latest.slideCount;
+    const bg = latest.background.kind === 'solid' ? latest.background.color : latest.background.colors[0];
+    useEditor.getState().insertSlide(at, endCardLayers({ slide: at, H, background: bg, kit, logo: imported }));
+    setTimeout(() => scrollToSlide(at), 0);
+    if (!kit.profile.handle && !kit.profile.name) {
+      Alert.alert('End card added', 'Add your name and handle in the brand kit and the next end card will use them.');
+    }
+  };
+
+  const saveTemplate = () =>
+    prompt(
+      'Save as template',
+      doc.name === 'Untitled' ? '' : doc.name,
+      (name) => {
+        saveAsTemplate(useEditor.getState().doc ?? doc, name);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        Alert.alert('Saved to your templates', 'Find it under Templates → Mine, ready to fill with new photos.');
+      },
+      { placeholder: 'Template name' },
+    );
+
   const addSticker = (emoji: string) => {
     const values = { text: emoji, font: 'sans' as const, color: '#000000', align: 'center' as const, fill: null };
     const layer: TextLayer = {
@@ -663,6 +744,61 @@ export default function EditorScreen() {
     ]);
   };
 
+  /** Saves and closes this project, then opens another in its place. */
+  const switchTo = async (otherId: string) => {
+    clearTimeout(saveTimer.current);
+    if (draw) finishDraw();
+    const last = useEditor.getState().doc;
+    finished.current = true;
+    if (last) await finishProject(last).catch(() => {});
+    router.replace(`/editor/${otherId}`);
+  };
+
+  /** A grid puzzle tile: make it the cover of a carousel, or open/unlink the one it has. */
+  const tileAction = (tile: number) => {
+    const latest = useEditor.getState().doc ?? doc;
+    const post = tileCount(latest) - tile;
+    const linked = latest.covers?.[tile];
+    if (linked) {
+      Alert.alert(`Post ${post} is a carousel`, 'Its first slide is this tile, so the puzzle stays whole on your profile.', [
+        { text: 'Open carousel', onPress: () => switchTo(linked) },
+        {
+          text: 'Unlink',
+          style: 'destructive',
+          onPress: async () => {
+            const next = await unlinkCover(latest, tile);
+            commit(() => next);
+          },
+        },
+        { text: 'Cancel', style: 'cancel' },
+      ]);
+      return;
+    }
+    Alert.alert(
+      `Make post ${post} a carousel?`,
+      'This tile becomes slide 1 of a new carousel. Post that carousel in this spot: the puzzle stays whole on your profile, and tapping the tile opens more slides.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Make carousel',
+          onPress: async () => {
+            setImporting('Making the carousel…');
+            try {
+              const carouselId = await createCoverCarousel(latest, tile);
+              commit((d) => ({ ...d, covers: { ...(d.covers ?? {}), [tile]: carouselId } }));
+              setImporting(false);
+              // Let the store update land before saving and switching.
+              setTimeout(() => switchTo(carouselId), 0);
+            } catch (e) {
+              setImporting(false);
+              Alert.alert('Could not make the carousel', e instanceof Error ? e.message : String(e));
+            }
+          },
+        },
+      ],
+    );
+  };
+
   const leave = async () => {
     clearTimeout(saveTimer.current);
     // Leaving mid-drawing keeps the ink rather than dropping it.
@@ -754,7 +890,7 @@ export default function EditorScreen() {
       case 'background':
         return <BackgroundPanel onClose={() => setPanel(null)} />;
       case 'rows':
-        return <GridRowsPanel onClose={() => setPanel(null)} />;
+        return <GridRowsPanel onTile={tileAction} onClose={() => setPanel(null)} />;
       case 'slides':
         return (
           <SlidesPanel
@@ -776,6 +912,7 @@ export default function EditorScreen() {
             onAddSticker={addSticker}
             onAddGrid={addGrid}
             onAddLogo={addLogo}
+            onAddDoodle={addDoodle}
             onClose={() => setPanel(null)}
           />
         );
@@ -850,6 +987,13 @@ export default function EditorScreen() {
               setPanel(null);
               setBranding(true);
             }}
+            onShuffle={() => {
+              select(null);
+              setPanel(null);
+              setShuffling(true);
+            }}
+            onEndCard={addEndCard}
+            onSaveTemplate={saveTemplate}
           />
         </Glass>
         <IconButton
@@ -934,6 +1078,13 @@ export default function EditorScreen() {
             </Text>
           </View>
         )}
+        {doc.coverOf && overview == null && !draw && (
+          <Pressable onPress={() => switchTo(doc.coverOf!.grid)} style={styles.coverBanner} accessibilityRole="button">
+            <Icon name={{ ios: 'square.grid.3x3.fill', android: 'grid_on' }} size={13} color={C.accent} />
+            <Text style={styles.coverBannerText}>Slide 1 is a tile of your grid puzzle</Text>
+            <Text style={[styles.coverBannerText, { color: C.accent }]}>Open puzzle</Text>
+          </Pressable>
+        )}
         {importing && (
           <View style={styles.importing}>
             <ActivityIndicator color={C.text} />
@@ -987,6 +1138,18 @@ export default function EditorScreen() {
           onCancel={() => setText(null)} onDone={finishText} />
       )}
       {exporting && <ExportSheet doc={doc as Doc} onClose={() => setExporting(false)} />}
+      {promptElement}
+      {shuffling && (
+        <ShuffleSheet
+          doc={doc}
+          images={images}
+          onApply={(next) => {
+            commit(() => next);
+            setShuffling(false);
+          }}
+          onClose={() => setShuffling(false)}
+        />
+      )}
       {branding && (
         <BrandApplySheet
           doc={doc}
@@ -1006,6 +1169,21 @@ export default function EditorScreen() {
 }
 
 const styles = StyleSheet.create({
+  coverBanner: {
+    position: 'absolute',
+    top: 10,
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 14,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: C.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: C.line,
+  },
+  coverBannerText: { ...T.medium, color: C.textDim, fontSize: 12 },
   screen: { flex: 1, backgroundColor: C.bg },
   topBar: {
     height: 56,
@@ -1118,6 +1296,8 @@ async function finishProject(doc: Doc) {
   saveProject(doc);
   removeUnusedPhotos(doc);
   await updateThumbnail(doc);
+  // Cover carousels show this puzzle's tiles; keep them in step.
+  if (doc.covers && Object.keys(doc.covers).length) await refreshCovers(doc).catch(() => {});
   // The same project may already be open again (quick re-entry); keep its photos then.
   if (useEditor.getState().doc?.id !== doc.id) releaseImages(doc.id);
 }

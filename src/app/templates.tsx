@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TemplateCard } from '@/components/template-thumb';
 import { Chip, HScroll, Icon, IconButton } from '@/components/ui';
 import { useFavorites } from '@/lib/favorites';
+import { MY_TEMPLATE_CATEGORY, isMyTemplate } from '@/lib/my-templates';
 import { getInterests } from '@/lib/settings';
 import {
   COLLECTIONS,
@@ -38,7 +39,10 @@ export default function TemplatesScreen() {
   const [query, setQuery] = useState('');
 
   const collection = COLLECTIONS.find((c) => c.id === collectionId);
-  const categories = [...new Set([...TEMPLATE_CATEGORIES, ...templates.map((t) => t.category)])];
+  const categories = [...new Set([...TEMPLATE_CATEGORIES, ...templates.map((t) => t.category)])].filter(
+    (c) => c !== MY_TEMPLATE_CATEGORY,
+  );
+  const hasMine = templates.some(isMyTemplate);
   const picks = forYou(templates, interests);
   const base = collection ? templates.filter((t) => inCollection(t, collection)) : templates;
 
@@ -47,6 +51,7 @@ export default function TemplatesScreen() {
     if (filter === 'foryou') return picks.length ? picks.filter((t) => list.includes(t)) : featured(list);
     if (filter === 'favorites') return list.filter((t) => favorites.includes(t.id));
     if (filter === 'new') return list.filter((t) => t.isNew);
+    if (filter === 'mine') return list.filter(isMyTemplate);
     return list.filter((t) => t.category === filter);
   };
   const list = searchTemplates(filtered(base), query);
@@ -120,6 +125,7 @@ export default function TemplatesScreen() {
             selected={filter === 'favorites'}
             onPress={() => setFilter('favorites')}
           />
+          {hasMine && <Chip label="Mine" selected={filter === 'mine'} onPress={() => setFilter('mine')} />}
           <Chip label="New" selected={filter === 'new'} onPress={() => setFilter('new')} />
           {categories.map((c) => (
             <Chip key={c} label={c} selected={filter === c} onPress={() => setFilter(c)} />

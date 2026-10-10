@@ -1,7 +1,23 @@
 import { Canvas, Group, Path, Skia } from '@shopify/react-native-skia';
 import * as Haptics from 'expo-haptics';
 import { useEffect, useState } from 'react';
-import { FlatList, Linking, Platform, Pressable, Share, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
+import { getDocumentAsync } from 'expo-document-picker';
+import {
+  ActivityIndicator,
+  FlatList,
+  Linking,
+  Platform,
+  Pressable,
+  ScrollView,
+  Share,
+  StyleSheet,
+  Switch,
+  Text,
+  TextInput,
+  View,
+  useWindowDimensions,
+} from 'react-native';
 import Animated, {
   FadeIn,
   FadeOut,
@@ -19,9 +35,11 @@ import {
   type ExportProgress,
   type ExportResult,
   type ShareTarget,
+  type VideoOptions,
   exportForShare,
   exportToPhotos,
 } from '@/lib/export';
+import { type PostCopyResult, aiNote, writePostCopy } from '@/lib/post-copy';
 import { layersOnSlide } from '@/lib/geometry';
 import { useSkImages } from '@/lib/images';
 import { templateLink } from '@/lib/template-link';
@@ -31,13 +49,17 @@ import { C, R, T } from '@/theme';
 import { isVideoExportAvailable } from '../../modules/seam-video-export';
 
 import { DocRenderer } from './doc-renderer';
-import { Eyebrow, Icon, type IconName, PressableScale } from './ui';
+import { Chip, Eyebrow, Icon, type IconName, PressableScale } from './ui';
 
 type App = 'instagram' | 'tiktok';
+
+type VideoMode = 'swipe' | 'reel' | 'reveal';
 
 type State =
   | { step: 'choose' }
   | { step: 'share' }
+  | { step: 'caption' }
+  | { step: 'video'; mode: VideoMode }
   | { step: 'saving'; progress: ExportProgress }
   | { step: 'saved'; result: ExportResult; mode: ExportMode; app?: App }
   | { step: 'error'; message: string };
@@ -67,6 +89,12 @@ async function openApp(app: App) {
 export function ExportSheet({ doc, onClose }: { doc: Doc; onClose: () => void }) {
   const insets = useSafeAreaInsets();
   const [state, setState] = useState<State>({ step: 'choose' });
+  const [video, setVideo] = useState<VideoOptions>({ zoom: true, music: null, bpm: null });
+  const [musicName, setMusicName] = useState<string | null>(null);
+  const [copy, setCopy] = useState<PostCopyResult | null>(null);
+  const [caption, setCaption] = useState('');
+  const [tags, setTags] = useState<string[]>([]);
+  const [copied, setCopied] = useState<string | null>(null);
   const [page, setPage] = useState(0);
   const H = ASPECTS[doc.aspect].height;
   const videoSlides = videoSlideSet(doc);
@@ -85,7 +113,7 @@ export function ExportSheet({ doc, onClose }: { doc: Doc; onClose: () => void })
     const total = mode === 'slides' ? doc.slideCount : mode === 'grid' ? tileCount(doc) : 1;
     setState({ step: 'saving', progress: { done: 0, total, current: 1, video: false } });
     try {
-      const result = await exportToPhotos(doc, mode, (progress) => setState({ step: 'saving', progress }));
+      const result = await exportToPhotos(doc, mode, (progress) => setState({ step: 'saving', progress }), video);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setState({ step: 'saved', result, mode, app });
       if (app) openApp(app);
@@ -121,8 +149,43 @@ export function ExportSheet({ doc, onClose }: { doc: Doc; onClose: () => void })
     }
   };
 
+  // --- Caption, hashtags and alt text ---------------------------------------
+
+  const writeCopy = async () => {
+    setCopy(null);
+    setState({ step: 'caption' });
+    try {
+      const result = await writePostCopy(doc);
+      setCopy(result);
+      setCaption(result.caption);
+      setTags(result.hashtags);
+    } catch (e) {
+      fail(e);
+    }
+  };
+
+  const fullCaption = () => [caption.trim(), tags.map((t) => `#${t}`).join(' ')].filter(Boolean).join('\n\n');
+
+  const copyText = async (text: string, what: string) => {
+    await Clipboard.setStringAsync(text);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setCopied(what);
+    setTimeout(() => setCopied((c) => (c === what ? null : c)), 1600);
+  };
+
+  // --- Motion Reels -----------------------------------------------------------
+
+  const pickMusic = async () => {
+    const result = await getDocumentAsync({ type: ['audio/*'], copyToCacheDirectory: true });
+    if (result.canceled || !result.assets[0]) return;
+    const a = result.assets[0];
+    setVideo((v) => ({ ...v, music: { uri: a.uri, start: 0 } }));
+    setMusicName(a.name.replace(/\.[^.]+$/, ''));
+  };
+
   const busy = state.step === 'saving';
   const choosing = state.step === 'choose' || state.step === 'share';
+  const videoTitle = (mode: VideoMode) => (mode === 'reveal' ? 'Reveal reel' : mode === 'reel' ? 'Reel 9:16' : 'Swipe video');
 
   return (
     <Animated.View entering={FadeIn.duration(180)} exiting={FadeOut.duration(160)} style={[StyleSheet.absoluteFill, styles.backdrop]}>
@@ -161,6 +224,7 @@ export function ExportSheet({ doc, onClose }: { doc: Doc; onClose: () => void })
                 label="Share…"
                 onPress={() => share({ kind: 'strip' })}
               />
+              <QuickAction icon={{ ios: 'text.bubble', android: 'chat' }} label="Caption" onPress={writeCopy} />
               <QuickAction icon={{ ios: 'link', android: 'link' }} label="Template" onPress={shareTemplate} />
             </View>
             <Eyebrow style={{ paddingHorizontal: 2 }}>Save as</Eyebrow>
@@ -180,8 +244,18 @@ export function ExportSheet({ doc, onClose }: { doc: Doc; onClose: () => void })
                 onPress={() => save('strip')}
               />
             </View>
+            <Option
+              icon={{ ios: 'play.rectangle', android: 'movie' }}
+              title="Reveal reel"
+              detail={canEncode ? 'The puzzle coming together, tile by tile, 9:16' : 'Needs the Seam app build'}
+              disabled={!canEncode}
+              onPress={() => setState({ step: 'video', mode: 'reveal' })}
+            />
             <Text style={styles.note}>
               Post them one at a time, starting with number 1 (the bottom-right tile), and the picture lines up on your profile.
+              {doc.covers && Object.keys(doc.covers).length > 0
+                ? ' Posts marked with the stack icon are carousels: post the carousel (its first slide is that tile) in their place.'
+                : ''}
             </Text>
           </View>
         )}
@@ -200,11 +274,7 @@ export function ExportSheet({ doc, onClose }: { doc: Doc; onClose: () => void })
                 label="Instagram"
                 onPress={() => save('slides', 'instagram')}
               />
-              <QuickAction
-                icon={{ ios: 'music.note', android: 'music_note' }}
-                label="TikTok"
-                onPress={() => save('slides', 'tiktok')}
-              />
+              <QuickAction icon={{ ios: 'text.bubble', android: 'chat' }} label="Caption" onPress={writeCopy} />
               <QuickAction
                 icon={{ ios: 'square.and.arrow.up', android: 'ios_share' }}
                 label="Share…"
@@ -241,9 +311,9 @@ export function ExportSheet({ doc, onClose }: { doc: Doc; onClose: () => void })
                 compact
                 icon={{ ios: 'hand.draw', android: 'swipe' }}
                 title="Swipe video"
-                detail="Post size"
+                detail="Post size · music"
                 disabled={!canSwipe}
-                onPress={() => save('swipe')}
+                onPress={() => setState({ step: 'video', mode: 'swipe' })}
               />
               <Option
                 compact
@@ -251,7 +321,7 @@ export function ExportSheet({ doc, onClose }: { doc: Doc; onClose: () => void })
                 title="Reel 9:16"
                 detail="Reels · TikTok"
                 disabled={!canSwipe}
-                onPress={() => save('reel')}
+                onPress={() => setState({ step: 'video', mode: 'reel' })}
               />
             </View>
             {!canEncode && (
@@ -281,8 +351,158 @@ export function ExportSheet({ doc, onClose }: { doc: Doc; onClose: () => void })
               title="Swipe video"
               detail={canEncode ? 'Plays through every slide' : 'Needs the Seam app build'}
               disabled={!canSwipe}
-              onPress={() => share({ kind: 'swipe' })}
+              onPress={() => setState({ step: 'video', mode: 'swipe' })}
             />
+          </View>
+        )}
+
+        {state.step === 'video' && (
+          <View style={{ gap: 14 }}>
+            <View style={styles.titleRow}>
+              <Text style={styles.title}>{videoTitle(state.mode)}</Text>
+              <Pressable onPress={() => setState({ step: 'choose' })} hitSlop={10}>
+                <Text style={[styles.link, { paddingVertical: 0 }]}>Back</Text>
+              </Pressable>
+            </View>
+            <View style={styles.card}>
+              {state.mode !== 'reveal' && (
+                <View style={[styles.row, styles.rowDivider]}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.rowTitle}>Gentle zoom</Text>
+                    <Text style={styles.rowDetail}>A slow push-in on each slide between swipes</Text>
+                  </View>
+                  <Switch value={!!video.zoom} onValueChange={(zoom) => setVideo((v) => ({ ...v, zoom }))} trackColor={{ true: C.accent, false: C.surfaceHi }} />
+                </View>
+              )}
+              <Pressable onPress={pickMusic} style={[styles.row, styles.rowDivider]}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.rowTitle}>{musicName ?? 'Add a song'}</Text>
+                  <Text style={styles.rowDetail} numberOfLines={1}>
+                    {video.music ? 'Fades out at the end' : 'An MP3 or M4A from Files'}
+                  </Text>
+                </View>
+                {video.music ? (
+                  <Pressable
+                    hitSlop={10}
+                    onPress={() => {
+                      setVideo((v) => ({ ...v, music: null }));
+                      setMusicName(null);
+                    }}>
+                    <Icon name={{ ios: 'xmark.circle.fill', android: 'cancel' }} size={20} color={C.textDim} />
+                  </Pressable>
+                ) : (
+                  <Icon name={{ ios: 'music.note', android: 'music_note' }} size={18} color={C.accent} />
+                )}
+              </Pressable>
+              {video.music && (
+                <View style={[styles.row, styles.rowDivider, { flexWrap: 'wrap' }]}>
+                  <Text style={[styles.rowTitle, { width: 64 }]}>Start at</Text>
+                  {[0, 15, 30, 45].map((s) => (
+                    <Chip
+                      key={s}
+                      label={`0:${String(s).padStart(2, '0')}`}
+                      selected={video.music?.start === s}
+                      onPress={() => setVideo((v) => (v.music ? { ...v, music: { ...v.music, start: s } } : v))}
+                      style={{ height: 30 }}
+                    />
+                  ))}
+                </View>
+              )}
+              <View style={[styles.row, { flexWrap: 'wrap' }]}>
+                <Text style={[styles.rowTitle, { width: 64 }]}>Pace</Text>
+                {(
+                  [
+                    ['Relaxed', 80],
+                    ['Natural', null],
+                    ['Upbeat', 120],
+                    ['Fast', 140],
+                  ] as const
+                ).map(([label, bpm]) => (
+                  <Chip key={label} label={label} selected={(video.bpm ?? null) === bpm} onPress={() => setVideo((v) => ({ ...v, bpm }))} style={{ height: 30 }} />
+                ))}
+              </View>
+            </View>
+            {video.music && <Text style={styles.note}>Pick the pace that matches your song: swipes land every four beats.</Text>}
+            <View style={styles.pair}>
+              <Option compact primary icon={{ ios: 'square.and.arrow.down', android: 'download' }} title="Save" detail="To Photos" onPress={() => save(state.mode)} />
+              <Option
+                compact
+                icon={{ ios: 'square.and.arrow.up', android: 'ios_share' }}
+                title="Share…"
+                detail="Send the video"
+                onPress={() => share(state.mode === 'reveal' ? { kind: 'reveal', video } : { kind: 'swipe', video })}
+              />
+            </View>
+          </View>
+        )}
+
+        {state.step === 'caption' && (
+          <View style={{ gap: 12 }}>
+            <View style={styles.titleRow}>
+              <Text style={styles.title}>Caption</Text>
+              <Pressable onPress={() => setState({ step: 'choose' })} hitSlop={10}>
+                <Text style={[styles.link, { paddingVertical: 0 }]}>Back</Text>
+              </Pressable>
+            </View>
+            {!copy ? (
+              <View style={[styles.center, { paddingVertical: 30 }]}>
+                <ActivityIndicator color={C.text} />
+                <Text style={styles.detail}>Reading your slides…</Text>
+              </View>
+            ) : (
+              <ScrollView style={{ maxHeight: 460 }} contentContainerStyle={{ gap: 12 }} keyboardShouldPersistTaps="handled">
+                <Text style={styles.note}>
+                  {copy.source === 'ai' ? 'Written on your iPhone by Apple Intelligence. Edit it as you like.' : (copy.note ?? aiNote())}
+                </Text>
+                <TextInput
+                  value={caption}
+                  onChangeText={setCaption}
+                  multiline
+                  style={styles.captionInput}
+                  placeholder="Write a caption"
+                  placeholderTextColor={C.textFaint}
+                />
+                <View style={styles.tagWrap}>
+                  {copy.hashtags.map((t) => {
+                    const on = tags.includes(t);
+                    return (
+                      <Chip
+                        key={t}
+                        label={`#${t}`}
+                        selected={on}
+                        onPress={() => setTags((list) => (on ? list.filter((x) => x !== t) : [...list, t]))}
+                        style={{ height: 30 }}
+                      />
+                    );
+                  })}
+                </View>
+                <Eyebrow style={{ paddingHorizontal: 2, marginTop: 4 }}>Alt text</Eyebrow>
+                {copy.altText.map((alt, i) => (
+                  <Pressable key={i} onPress={() => copyText(alt, `alt${i}`)} style={styles.altRow}>
+                    <Text style={styles.altText}>{alt}</Text>
+                    <Icon
+                      name={copied === `alt${i}` ? { ios: 'checkmark', android: 'check' } : { ios: 'doc.on.doc', android: 'content_copy' }}
+                      size={15}
+                      color={copied === `alt${i}` ? C.accent : C.textDim}
+                    />
+                  </Pressable>
+                ))}
+                <Text style={styles.note}>In Instagram: Advanced settings → Accessibility → Write alt text, one per slide.</Text>
+              </ScrollView>
+            )}
+            {copy && (
+              <View style={styles.pair}>
+                <Option
+                  compact
+                  primary
+                  icon={copied === 'caption' ? { ios: 'checkmark', android: 'check' } : { ios: 'doc.on.doc', android: 'content_copy' }}
+                  title={copied === 'caption' ? 'Copied' : 'Copy caption'}
+                  detail="With hashtags"
+                  onPress={() => copyText(fullCaption(), 'caption')}
+                />
+                <Option compact icon={{ ios: 'arrow.clockwise', android: 'refresh' }} title="Rewrite" detail="Try again" onPress={writeCopy} />
+              </View>
+            )}
           </View>
         )}
 
@@ -329,6 +549,7 @@ export function ExportSheet({ doc, onClose }: { doc: Doc; onClose: () => void })
 }
 
 function nextStep(mode: ExportMode, app: App) {
+  if (mode === 'reveal') return app === 'instagram' ? 'Post as a Reel' : 'Post the video';
   if (mode === 'grid') return app === 'instagram' ? 'Post 1 first, one at a time' : 'Post them in order';
   if (mode === 'reel') return app === 'instagram' ? 'Post as a Reel' : 'Post the video';
   if (mode === 'swipe') return 'Post the video';
@@ -389,6 +610,7 @@ function GridPreview({ doc }: { doc: Doc }) {
           return (
             <View key={i} style={[styles.postBadge, { left: t.x * k + 6, top: t.y * k + 6 }]}>
               <Text style={styles.postBadgeText}>{total - i}</Text>
+              {!!doc.covers?.[i] && <Icon name={{ ios: 'square.fill.on.square.fill', android: 'filter_none' }} size={9} color="#FFFFFF" />}
             </View>
           );
         })}
@@ -580,6 +802,8 @@ const styles = StyleSheet.create({
   gridGap: { position: 'absolute', backgroundColor: C.surface },
   postBadge: {
     position: 'absolute',
+    flexDirection: 'row',
+    gap: 3,
     minWidth: 20,
     height: 20,
     borderRadius: 10,
@@ -629,6 +853,25 @@ const styles = StyleSheet.create({
   dotOn: { backgroundColor: C.accent },
   counter: { ...T.medium, color: C.textDim, fontSize: 12, fontVariant: ['tabular-nums'] },
   quickRow: { flexDirection: 'row', justifyContent: 'space-between' },
+  card: { backgroundColor: C.surfaceHi, borderRadius: R.lg, overflow: 'hidden' },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, minHeight: 56, paddingVertical: 10 },
+  rowDivider: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.line },
+  rowTitle: { ...T.medium, fontSize: 15, color: C.text },
+  rowDetail: { ...T.body, color: C.textDim, fontSize: 12 },
+  captionInput: {
+    ...T.body,
+    color: C.text,
+    fontSize: 15,
+    lineHeight: 21,
+    minHeight: 96,
+    padding: 14,
+    borderRadius: R.md,
+    backgroundColor: C.surfaceHi,
+    textAlignVertical: 'top',
+  },
+  tagWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  altRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, padding: 12, borderRadius: R.md, backgroundColor: C.surfaceHi },
+  altText: { ...T.body, color: C.text, fontSize: 13, lineHeight: 18, flex: 1 },
   quick: { alignItems: 'center', gap: 7 },
   quickIcon: {
     width: 52,

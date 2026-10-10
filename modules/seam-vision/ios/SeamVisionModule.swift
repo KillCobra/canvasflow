@@ -28,6 +28,21 @@ public class SeamVisionModule: Module {
       }
     }
 
+    AsyncFunction("classifyImage") { [weak self] (uri: String, limit: Int, promise: Promise) in
+      guard let queue = self?.visionQueue else {
+        promise.reject("ERR_SEAM_VISION", "Seam vision module was released")
+        return
+      }
+      queue.async {
+        do {
+          let labels = try autoreleasepool { try SeamVision.classify(uri: uri, limit: limit) }
+          promise.resolve(labels)
+        } catch {
+          promise.reject("ERR_SEAM_VISION", "classifyImage failed: \(SeamVisionModule.message(for: error))")
+        }
+      }
+    }
+
     AsyncFunction("liftSubject") { [weak self] (uri: String, outputUri: String, maxEdge: Double, promise: Promise) in
       guard let queue = self?.visionQueue else {
         promise.reject("ERR_SEAM_VISION", "Seam vision module was released")

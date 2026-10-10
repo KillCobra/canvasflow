@@ -13,6 +13,7 @@ import { Eyebrow, Icon, IconButton, PressableScale } from '@/components/ui';
 import { useFavorites } from '@/lib/favorites';
 import { type ProjectSummary, listProjects } from '@/lib/projects';
 import { getInterests, hasOnboarded, takeSampleRequest } from '@/lib/settings';
+import { useMyTemplates } from '@/lib/my-templates';
 import { TEMPLATES, type Template, featured, forYou, useTemplates } from '@/lib/templates';
 import { useUi } from '@/lib/ui-state';
 import { C, R, T } from '@/theme';
@@ -26,6 +27,7 @@ export default function HomeScreen() {
   const [interests, setInterests] = useState<string[]>([]);
   const favorites = useFavorites();
   const templates = useTemplates();
+  const mine = useMyTemplates();
   const openNew = () => useUi.getState().setNewProject(true);
 
   const refresh = useCallback(() => {
@@ -83,6 +85,19 @@ export default function HomeScreen() {
         </Animated.View>
       )}
 
+      <Animated.View entering={FadeInDown.delay(100).duration(500)}>
+        <PressableScale onPress={() => router.push('/photos')} scaleTo={0.98} style={styles.photosCard}>
+          <View style={styles.photosIcon}>
+            <Icon name={{ ios: 'photo.stack', android: 'photo_library' }} size={20} color={C.accent} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.startTitle}>Start from photos</Text>
+            <Text style={styles.startDetail}>Pick your photos; Seam suggests the layouts that fit them.</Text>
+          </View>
+          <Icon name={{ ios: 'chevron.right', android: 'chevron_right' }} size={14} color={C.textFaint} />
+        </PressableScale>
+      </Animated.View>
+
       {recent.length > 0 && (
         <Animated.View entering={FadeInDown.delay(80).duration(500)} style={{ gap: 14 }}>
           <SectionHeader title="Recent" onSeeAll={() => router.navigate('/projects')} />
@@ -112,6 +127,17 @@ export default function HomeScreen() {
         />
       </Animated.View>
 
+      {mine.length > 0 && (
+        <Animated.View entering={FadeInDown.duration(400)}>
+          <TemplateRow
+            title="Your templates"
+            templates={mine}
+            width={width}
+            onSeeAll={() => router.push({ pathname: '/templates', params: { filter: 'mine' } })}
+          />
+        </Animated.View>
+      )}
+
       {favoriteTemplates.length > 0 && (
         <Animated.View entering={FadeInDown.duration(400)}>
           <TemplateRow
@@ -126,7 +152,7 @@ export default function HomeScreen() {
       <Animated.View entering={FadeInDown.delay(260).duration(500)}>
         <TemplateRow
           title="All templates"
-          templates={templates.filter((t) => !suggested.includes(t)).slice(0, 10)}
+          templates={templates.filter((t) => !suggested.includes(t) && !mine.includes(t)).slice(0, 10)}
           width={width}
           onSeeAll={() => router.push('/templates')}
         />
@@ -181,6 +207,17 @@ const styles = StyleSheet.create({
   search: { position: 'absolute', top: 0, right: -6 },
   wordmark: { ...T.display, fontSize: 64, letterSpacing: -1, lineHeight: 70, marginTop: 14 },
   tagline: { ...T.displayItalic, color: C.textDim, fontSize: 21, marginTop: 2 },
+  photosCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    padding: 16,
+    borderRadius: R.lg,
+    backgroundColor: C.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: C.lineSoft,
+  },
+  photosIcon: { width: 44, height: 44, borderRadius: 14, backgroundColor: C.accent + '1F', alignItems: 'center', justifyContent: 'center' },
   startCard: {
     flexDirection: 'row',
     alignItems: 'center',

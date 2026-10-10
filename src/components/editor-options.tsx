@@ -19,6 +19,9 @@ export function EditorOptions({
   onSelectMultiple,
   onPreview,
   onBrand,
+  onShuffle,
+  onEndCard,
+  onSaveTemplate,
 }: {
   /** Grid puzzles have a fixed tile shape and no slide overview. */
   grid?: boolean;
@@ -28,6 +31,9 @@ export function EditorOptions({
   onSelectMultiple: () => void;
   onPreview: () => void;
   onBrand: () => void;
+  onShuffle: () => void;
+  onEndCard: () => void;
+  onSaveTemplate: () => void;
 }) {
   const aspect = useEditor((s) => s.doc?.aspect ?? '4:5');
   const setAspect = useEditor((s) => s.setAspect);
@@ -54,6 +60,10 @@ export function EditorOptions({
           })),
         },
       ];
+  const carouselItems: MenuItem[] = [
+    { label: 'Add end card', icon: { ios: 'person.crop.rectangle', android: 'badge' }, onPress: onEndCard },
+    { label: 'Save as template', icon: { ios: 'square.and.arrow.down.on.square', android: 'bookmark_add' }, onPress: onSaveTemplate },
+  ];
   const items: MenuItem[] = [
     ...slideItems,
     {
@@ -69,6 +79,8 @@ export function EditorOptions({
       separator: true,
       onPress: onBrand,
     },
+    { label: 'Shuffle style', icon: { ios: 'shuffle', android: 'shuffle' }, onPress: onShuffle },
+    ...(grid ? [] : carouselItems),
     {
       label: 'Select multiple',
       icon: { ios: 'checklist', android: 'checklist' },

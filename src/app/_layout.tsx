@@ -8,6 +8,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { configureReanimatedLogger } from 'react-native-reanimated';
 
 import { CANVAS_FONT_FILES, UI_FONT_FILES, loadCustomFonts, setCanvasFonts } from '@/lib/fonts';
+import { setupReminders } from '@/lib/reminders';
 import { refreshRemoteTemplates } from '@/lib/templates';
 import { C } from '@/theme';
 
@@ -36,7 +37,11 @@ export default function RootLayout() {
     if (canvasFonts) loadCustomFonts();
   }, [canvasFonts]);
   useEffect(() => {
-    if (ready) refreshRemoteTemplates();
+    if (!ready) return;
+    refreshRemoteTemplates();
+    // After the navigator mounts, so a tapped reminder can open its screen.
+    const t = setTimeout(setupReminders, 0);
+    return () => clearTimeout(t);
   }, [ready]);
 
   if (!ready) return null;
@@ -56,6 +61,7 @@ export default function RootLayout() {
           <Stack.Screen name="whats-new" />
           <Stack.Screen name="settings" />
           <Stack.Screen name="grid" />
+          <Stack.Screen name="photos" options={{ presentation: 'modal' }} />
           <Stack.Screen name="acknowledgements/index" />
           <Stack.Screen name="acknowledgements/software" />
           <Stack.Screen name="acknowledgements/licence" />

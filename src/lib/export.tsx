@@ -7,6 +7,7 @@ import { DocRenderer, type LayerPart } from '@/components/doc-renderer';
 import {
   type SlideImagePart,
   type SlideVideoPart,
+  exportGridReveal,
   exportPanVideo,
   exportSlideVideo,
   isVideoExportAvailable,
@@ -135,7 +136,24 @@ class FullImages {
  * swipe: a video panning across the slides at the post's size.
  * reel: the same pan inside a 9:16 frame for Reels/TikTok.
  */
-export type ExportMode = 'slides' | 'strip' | 'swipe' | 'reel' | 'grid';
+export type ExportMode = 'slides' | 'strip' | 'swipe' | 'reel' | 'grid' | 'reveal';
+
+/** Motion Reels: camera motion, a soundtrack and timing for the video exports. */
+export type VideoOptions = {
+  /** A slow push-in on each slide. */
+  zoom?: boolean;
+  /** A song (file:// URI copied into the cache), from `start` seconds. */
+  music?: { uri: string; start: number } | null;
+  /** Beats per minute to time the swipes to; unset = the default pace. */
+  bpm?: number | null;
+};
+
+/** Seconds resting on a slide and seconds per swipe: one swipe every four beats when timed to music. */
+export function videoTiming(bpm?: number | null) {
+  if (!bpm) return { hold: 1.5, move: 0.55, step: 0.4 };
+  const beat = 60 / bpm;
+  return { hold: beat * 3, move: Math.max(0.35, beat), step: beat };
+}
 
 export type ExportProgress = {
   /** Slides finished, plus the fraction of the current one (0..total). */
@@ -167,18 +185,21 @@ export async function exportToPhotos(
   doc: Doc,
   mode: ExportMode,
   onProgress?: (p: ExportProgress) => void,
+  video: VideoOptions = {},
 ): Promise<ExportResult> {
   const permission = await requestPermissionsAsync(true);
   if (!permission.granted) throw new Error('Photos access is needed to save your slides.');
 
   const stamp = Date.now();
 
-  if (mode === 'swipe' || mode === 'reel') {
-    const video = await exportSwipeVideo(doc, mode, new File(Paths.cache, `seam-${stamp}-${mode}.mp4`), onProgress);
+  if (mode === 'swipe' || mode === 'reel' || mode === 'reveal') {
+    const file = new File(Paths.cache, `seam-${stamp}-${mode}.mp4`);
+    const out =
+      mode === 'reveal' ? await exportGridRevealVideo(doc, file, video, onProgress) : await exportSwipeVideo(doc, mode, file, onProgress, video);
     try {
-      await Asset.create(video.uri);
+      await Asset.create(out.uri);
     } finally {
-      if (video.exists) video.delete();
+      if (out.exists) out.delete();
     }
     recordExport(1);
     return { saved: 1, videos: 1, stills: 0 };
@@ -268,7 +289,11 @@ export async function exportToPhotos(
 }
 
 /** One file for the share sheet: a single slide, the panorama, or the swipe video. */
-export type ShareTarget = { kind: 'slide'; index: number } | { kind: 'strip' } | { kind: 'swipe' };
+export type ShareTarget =
+  | { kind: 'slide'; index: number }
+  | { kind: 'strip' }
+  | { kind: 'swipe'; video?: VideoOptions }
+  | { kind: 'reveal'; video?: VideoOptions };
 
 /** A clean folder per share; the files from the last share are dropped. */
 function shareDir() {
@@ -299,7 +324,10 @@ export async function exportForShare(
   const base = fileBase(doc);
 
   if (target.kind === 'swipe') {
-    return (await exportSwipeVideo(doc, 'swipe', new File(dir, `${base} swipe.mp4`), onProgress)).uri;
+    return (await exportSwipeVideo(doc, 'swipe', new File(dir, `${base} swipe.mp4`), onProgress, target.video)).uri;
+  }
+  if (target.kind === 'reveal') {
+    return (await exportGridRevealVideo(doc, new File(dir, `${base} reveal.mp4`), target.video ?? {}, onProgress)).uri;
   }
 
   const index = Math.max(0, Math.min(doc.slideCount - 1, target.kind === 'slide' ? target.index : 0));
@@ -451,6 +479,7 @@ async function exportSwipeVideo(
   mode: 'swipe' | 'reel',
   output: File,
   onProgress?: (p: ExportProgress) => void,
+  video: VideoOptions = {},
 ): Promise<File> {
   if (!isVideoExportAvailable()) throw new Error('Swipe videos need the Seam app build (Expo Go can’t encode video).');
   const { height } = canvasSize(doc);
@@ -504,8 +533,9 @@ async function exportSwipeVideo(
         backgroundImage,
         cornerRadius: reel ? 26 : 0,
         fps: 30,
-        hold: 1.5,
-        move: 0.55,
+        ...videoTiming(video.bpm),
+        motion: video.zoom ? 'zoom' : 'none',
+        audio: video.music ? { uri: video.music.uri, start: video.music.start, volume: 1 } : null,
         dots: reel && n > 1
           ? { y: window.y + winH + 46, color: '#FFFFFF59', activeColor: '#FFFFFF', size: 13, gap: 11 }
           : null,
@@ -519,6 +549,55 @@ async function exportSwipeVideo(
     throw e;
   } finally {
     first?.dispose();
+    full.releaseAll();
+    temp.forEach((f) => f.exists && f.delete());
+  }
+}
+
+/** A 9:16 Reel of a grid puzzle coming together tile by tile, in posting order. */
+async function exportGridRevealVideo(doc: Doc, output: File, video: VideoOptions, onProgress?: (p: ExportProgress) => void): Promise<File> {
+  if (!isVideoExportAvailable()) throw new Error('Reels need the Seam app build (Expo Go can’t encode video).');
+  const total = tileCount(doc);
+  const status = (done: number, label: string) => onProgress?.({ done, total: 1, current: 1, video: true, label });
+  const name = output.name.replace(/\.mp4$/, '');
+  const temp: File[] = [];
+  const full = new FullImages(doc.id, [doc.layers]);
+  try {
+    const images = await full.forSlide(doc.layers);
+    for (let i = 0; i < total; i++) {
+      status((i / total) * 0.3, `Rendering post ${i + 1} of ${total}`);
+      const image = await renderTile(doc, images, i, 540);
+      if (!image) throw new Error(`Could not render post ${i + 1}.`);
+      temp.push(writeTemp(image, `${name}-${i}.jpg`));
+      image.dispose();
+      await nextFrame();
+    }
+    if (output.exists) output.delete();
+    status(0.3, 'Encoding the reveal');
+    const { step } = videoTiming(video.bpm);
+    await exportGridReveal(
+      {
+        tiles: temp.map((f) => f.uri),
+        columns: doc.slideCount,
+        rows: doc.grid ?? 1,
+        width: REEL.width,
+        height: REEL.height,
+        background: '#0A0A0A',
+        gap: 6,
+        order: postingOrder(doc),
+        fps: 30,
+        step,
+        hold: 2.5,
+        audio: video.music ? { uri: video.music.uri, start: video.music.start, volume: 1 } : null,
+        outputUri: output.uri,
+      },
+      (f) => status(0.3 + f * 0.7, 'Encoding the reveal'),
+    );
+    return output;
+  } catch (e) {
+    if (output.exists) output.delete();
+    throw e;
+  } finally {
     full.releaseAll();
     temp.forEach((f) => f.exists && f.delete());
   }
@@ -547,6 +626,38 @@ const even = (v: number) => Math.round(v / 2) * 2;
 function solidHex(doc: Doc) {
   const c = doc.background.kind === 'solid' ? doc.background.color : doc.background.colors[0];
   return /^#[0-9a-f]{6}/i.test(c) ? c.slice(0, 7) : '#000000';
+}
+
+/** One grid puzzle tile at full resolution, as JPEG bytes. */
+export async function renderTileBytes(doc: Doc, index: number, width = SLIDE_WIDTH) {
+  const full = new FullImages(doc.id, [doc.layers]);
+  try {
+    const image = await renderTile(doc, await full.forSlide(doc.layers), index, width);
+    if (!image) throw new Error(`Could not render tile ${index + 1}.`);
+    const bytes = image.encodeToBytes(ImageFormat.JPEG, 95);
+    image.dispose();
+    return bytes;
+  } finally {
+    full.releaseAll();
+  }
+}
+
+/**
+ * Small images of what a post will look like on the profile once it's up:
+ * each tile of a grid puzzle (reading order), or a carousel's first slide.
+ * Written to the cache; the caller copies what it keeps.
+ */
+export async function postedPreviews(doc: Doc): Promise<string[]> {
+  const images = await preloadImages(doc.id, doc.layers);
+  const count = isGrid(doc) ? tileCount(doc) : 1;
+  const uris: string[] = [];
+  for (let i = 0; i < count; i++) {
+    const image = isGrid(doc) ? await renderTile(doc, images, i, 540) : await renderSlide(doc, images, 0, 540);
+    if (!image) continue;
+    uris.push(writeTemp(image, `seam-posted-${doc.id}-${i}.jpg`).uri);
+    image.dispose();
+  }
+  return uris;
 }
 
 export async function updateThumbnail(doc: Doc) {

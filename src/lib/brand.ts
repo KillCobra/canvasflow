@@ -4,29 +4,83 @@ import { useSyncExternalStore } from 'react';
 
 import { type FontId, uid } from './types';
 
-// The brand kit: colours (documents/brand.json, shown first wherever colours
-// are picked), logos and other brand images, fonts, and the brand's details
-// (name, handle, website, tagline) that fill in templates and the grid planner.
+// Brand kits: colours (shown first wherever colours are picked), logos and
+// other brand images, fonts, and the brand's details (name, handle, website,
+// tagline) that fill in templates and the grid planner. There can be several
+// kits (for clients or side accounts); one is active and everything reads it.
+//
+// The first kit keeps the original locations (documents/brand.json,
+// brand-fonts.json, brand-profile.json, brand/logos, brand/assets); others
+// live in documents/brand/kits/<id>/.
 
-/** Tiny observable value persisted as JSON in the documents folder. */
-function persisted<T>(name: string, parse: (raw: unknown) => T, fallback: T) {
-  const file = () => new File(Paths.document, name);
-  const listeners = new Set<() => void>();
-  let value: T | null = null;
-  const get = () => {
-    if (value === null) {
-      try {
-        value = file().exists ? parse(JSON.parse(file().textSync())) : fallback;
-      } catch {
-        value = fallback;
-      }
+export type BrandKitMeta = { id: string; name: string };
+type KitIndex = { active: string; kits: BrandKitMeta[] };
+
+const DEFAULT_KIT = 'default';
+const indexFile = () => new File(Paths.document, 'brand-kits.json');
+const kitListeners = new Set<() => void>();
+let kitIndex: KitIndex | null = null;
+
+function readIndex(): KitIndex {
+  try {
+    if (indexFile().exists) {
+      const raw = JSON.parse(indexFile().textSync()) as Partial<KitIndex>;
+      const kits = Array.isArray(raw.kits)
+        ? raw.kits.filter((k): k is BrandKitMeta => typeof k?.id === 'string' && typeof k?.name === 'string')
+        : [];
+      if (!kits.some((k) => k.id === DEFAULT_KIT)) kits.unshift({ id: DEFAULT_KIT, name: 'My brand' });
+      const active = kits.some((k) => k.id === raw.active) ? (raw.active as string) : DEFAULT_KIT;
+      return { active, kits };
     }
-    return value;
-  };
-  const set = (next: T) => {
-    value = next;
+  } catch {
+    // Fall through to a single kit.
+  }
+  return { active: DEFAULT_KIT, kits: [{ id: DEFAULT_KIT, name: 'My brand' }] };
+}
+
+const currentIndex = () => (kitIndex ??= readIndex());
+const activeKit = () => currentIndex().active;
+
+function saveIndex(next: KitIndex) {
+  kitIndex = next;
+  try {
+    indexFile().write(JSON.stringify(next));
+  } catch {
+    // In memory for this session.
+  }
+  kitListeners.forEach((l) => l());
+}
+
+/** Where a kit's file lives: the original path for the first kit, the kit folder for others. */
+function kitFile(kit: string, legacyName: string, name: string) {
+  if (kit === DEFAULT_KIT) return new File(Paths.document, legacyName);
+  const dir = new Directory(Paths.document, 'brand', 'kits', kit);
+  if (!dir.exists) dir.create({ intermediates: true });
+  return new File(dir, name);
+}
+
+/** Tiny observable value persisted as JSON, one per kit, following the active kit. */
+function persisted<T>(legacyName: string, name: string, parse: (raw: unknown) => T, fallback: T) {
+  const values = new Map<string, T>();
+  const listeners = new Set<() => void>();
+  const read = (kit: string): T => {
     try {
-      file().write(JSON.stringify(next));
+      const file = kitFile(kit, legacyName, name);
+      return file.exists ? parse(JSON.parse(file.textSync())) : fallback;
+    } catch {
+      return fallback;
+    }
+  };
+  const getFor = (kit: string) => {
+    if (!values.has(kit)) values.set(kit, read(kit));
+    return values.get(kit) as T;
+  };
+  const get = () => getFor(activeKit());
+  const set = (next: T) => {
+    const kit = activeKit();
+    values.set(kit, next);
+    try {
+      kitFile(kit, legacyName, name).write(JSON.stringify(next));
     } catch {
       // Still updated in memory for this session.
     }
@@ -34,12 +88,14 @@ function persisted<T>(name: string, parse: (raw: unknown) => T, fallback: T) {
   };
   const subscribe = (l: () => void) => {
     listeners.add(l);
+    kitListeners.add(l);
     return () => {
       listeners.delete(l);
+      kitListeners.delete(l);
     };
   };
   const use = () => useSyncExternalStore(subscribe, get);
-  return { get, set, use };
+  return { get, getFor, set, use };
 }
 
 // ---------------------------------------------------------------------------
@@ -57,6 +113,7 @@ export function normalizeHex(value: string) {
 
 const colors = persisted<string[]>(
   'brand.json',
+  'colors.json',
   (raw) =>
     Array.isArray(raw)
       ? raw.flatMap((c) => (typeof c === 'string' && normalizeHex(c) ? [normalizeHex(c)!] : [])).slice(0, BRAND_COLOR_LIMIT)
@@ -104,31 +161,42 @@ export type BrandLogo = BrandImage;
 const MAX_EDGE = 1200;
 
 function imageCollection(folder: string, limit: number) {
-  const dir = () => {
-    const d = new Directory(Paths.document, 'brand', folder);
+  const dirFor = (kit: string) => {
+    const d = kit === DEFAULT_KIT ? new Directory(Paths.document, 'brand', folder) : new Directory(Paths.document, 'brand', 'kits', kit, folder);
     if (!d.exists) d.create({ intermediates: true });
     return d;
   };
+  const dir = () => dirFor(activeKit());
   const index = () => new File(dir(), 'index.json');
   const listeners = new Set<() => void>();
-  let items: BrandImage[] | null = null;
+  const items = new Map<string, BrandImage[]>();
 
-  const read = (): BrandImage[] => {
+  const readFor = (kit: string): BrandImage[] => {
     try {
-      if (!index().exists) return [];
-      const list = JSON.parse(index().textSync());
+      const file = new File(dirFor(kit), 'index.json');
+      if (!file.exists) return [];
+      const list = JSON.parse(file.textSync());
       if (!Array.isArray(list)) return [];
       return list.filter(
         (l): l is BrandImage =>
-          !!l && typeof l.id === 'string' && typeof l.file === 'string' && l.width > 0 && l.height > 0 && new File(dir(), l.file).exists,
+          !!l &&
+          typeof l.id === 'string' &&
+          typeof l.file === 'string' &&
+          l.width > 0 &&
+          l.height > 0 &&
+          new File(dirFor(kit), l.file).exists,
       );
     } catch {
       return [];
     }
   };
-  const current = () => (items ??= read());
+  const currentFor = (kit: string) => {
+    if (!items.has(kit)) items.set(kit, readFor(kit));
+    return items.get(kit) as BrandImage[];
+  };
+  const current = () => currentFor(activeKit());
   const save = (next: BrandImage[]) => {
-    items = next;
+    items.set(activeKit(), next);
     try {
       index().write(JSON.stringify(next));
     } catch {
@@ -140,11 +208,15 @@ function imageCollection(folder: string, limit: number) {
   return {
     limit,
     current,
+    currentFor,
+    dirFor,
     use: () =>
       useSyncExternalStore((l) => {
         listeners.add(l);
+        kitListeners.add(l);
         return () => {
           listeners.delete(l);
+          kitListeners.delete(l);
         };
       }, current),
     uri: (item: BrandImage) => new File(dir(), item.file).uri,
@@ -220,6 +292,7 @@ export const BRAND_FONT_LIMIT = 4;
 
 const fonts = persisted<FontId[]>(
   'brand-fonts.json',
+  'fonts.json',
   (raw) => (Array.isArray(raw) ? (raw.filter((f) => typeof f === 'string') as FontId[]).slice(0, BRAND_FONT_LIMIT) : []),
   [],
 );
@@ -251,6 +324,7 @@ const EMPTY_PROFILE: BrandProfile = { name: '', handle: '', website: '', tagline
 
 const profile = persisted<BrandProfile>(
   'brand-profile.json',
+  'profile.json',
   (raw) => {
     const r = (raw ?? {}) as Record<string, unknown>;
     const str = (v: unknown) => (typeof v === 'string' ? v : '');
@@ -277,3 +351,61 @@ export function brandIsEmpty() {
   const p = profile.get();
   return !colors.get().length && !fonts.get().length && !logos.current().length && !p.handle && !p.name;
 }
+
+// ---------------------------------------------------------------------------
+// Kits
+
+export function useBrandKits(): KitIndex {
+  return useSyncExternalStore((l) => {
+    kitListeners.add(l);
+    return () => {
+      kitListeners.delete(l);
+    };
+  }, currentIndex);
+}
+
+export const brandKits = currentIndex;
+
+export function switchBrandKit(id: string) {
+  const index = currentIndex();
+  if (index.active === id || !index.kits.some((k) => k.id === id)) return;
+  saveIndex({ ...index, active: id });
+}
+
+/** A new, empty kit (or a copy of the active one's colours, fonts and details), made active. */
+export function createBrandKit(name: string, copyActive = false) {
+  const id = uid();
+  const index = currentIndex();
+  const from = index.active;
+  if (copyActive) {
+    const write = (n: string, v: unknown) => kitFile(id, n, n).write(JSON.stringify(v));
+    write('colors.json', colors.getFor(from));
+    write('fonts.json', fonts.getFor(from));
+    write('profile.json', { ...profile.getFor(from), name: '' });
+  }
+  saveIndex({ active: id, kits: [...index.kits, { id, name: name.trim() || 'New brand' }] });
+  return id;
+}
+
+export function renameBrandKit(id: string, name: string) {
+  const index = currentIndex();
+  saveIndex({ ...index, kits: index.kits.map((k) => (k.id === id ? { ...k, name: name.trim() || k.name } : k)) });
+}
+
+/** Deletes a kit and its files. The first kit can't be deleted (it holds the original data). */
+export function deleteBrandKit(id: string) {
+  if (id === DEFAULT_KIT) return;
+  const index = currentIndex();
+  const dir = new Directory(Paths.document, 'brand', 'kits', id);
+  if (dir.exists) dir.delete();
+  const kits = index.kits.filter((k) => k.id !== id);
+  saveIndex({ active: index.active === id ? DEFAULT_KIT : index.active, kits });
+}
+
+export const isDefaultKit = (id: string) => id === DEFAULT_KIT;
+
+/** Everything in a kit, for applying it (any kit, not just the active one). */
+export function brandKitData(id = activeKit()) {
+  return { colors: colors.getFor(id), fonts: fonts.getFor(id), profile: profile.getFor(id) };
+}
+

@@ -231,6 +231,16 @@ export async function importVideo(docId: string, uri: string, durationMs: number
   return { src: name, width: poster.width, height: poster.height, duration: durationMs / 1000 };
 }
 
+/** Writes a rendered image into the project (full size and preview), as `name`. */
+export function writeProjectImage(docId: string, name: string, bytes: Uint8Array) {
+  const dir = projectDir(docId, true);
+  for (const file of [new File(dir, name), new File(dir, previewName(name))]) {
+    if (file.exists) file.delete();
+    file.write(bytes);
+  }
+  return name;
+}
+
 export function writeThumb(docId: string, bytes: Uint8Array) {
   const dir = projectDir(docId);
   if (!dir.exists) return;

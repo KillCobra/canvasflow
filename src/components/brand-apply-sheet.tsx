@@ -6,7 +6,7 @@ import { Pressable, ScrollView, StyleSheet, Switch, Text, View, useWindowDimensi
 import Animated, { FadeIn, FadeOut, SlideInDown, SlideOutDown } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { useBrandColors, useBrandFonts, useBrandProfile } from '@/lib/brand';
+import { switchBrandKit, useBrandColors, useBrandFonts, useBrandKits, useBrandProfile } from '@/lib/brand';
 import { type ApplyOptions, type BrandKit, applyBrand, variantCount } from '@/lib/brand-apply';
 import { fontInfo } from '@/lib/fonts';
 import type { ImageMap } from '@/lib/images';
@@ -14,7 +14,7 @@ import { type Doc, canvasSize } from '@/lib/types';
 import { C, R, T } from '@/theme';
 
 import { DocRenderer } from './doc-renderer';
-import { Icon, PressableScale } from './ui';
+import { Chip, HScroll, Icon, PressableScale } from './ui';
 
 const HANDLE_TOKENS = /@(yourname|yourhandle|handle|username)\b/i;
 
@@ -38,6 +38,7 @@ export function BrandApplySheet({
   const colors = useBrandColors();
   const fonts = useBrandFonts();
   const profile = useBrandProfile();
+  const kits = useBrandKits();
   const kit: BrandKit = { colors, fonts, profile };
   const hasHandle = !!profile.handle && doc.layers.some((l) => l.type === 'text' && HANDLE_TOKENS.test(l.text));
   const [opts, setOpts] = useState<ApplyOptions>({
@@ -85,6 +86,28 @@ export function BrandApplySheet({
             <Text style={styles.link}>Edit kit</Text>
           </Pressable>
         </View>
+
+        {kits.kits.length > 1 && (
+          <View style={{ marginHorizontal: -18 }}>
+            <HScroll>
+              <View style={{ width: 10 }} />
+              {kits.kits.map((k) => (
+                <Chip
+                  key={k.id}
+                  label={k.name}
+                  selected={k.id === kits.active}
+                  onPress={() => {
+                    Haptics.selectionAsync();
+                    switchBrandKit(k.id);
+                    setOpts((o) => ({ ...o, variant: 0 }));
+                  }}
+                  style={{ height: 32 }}
+                />
+              ))}
+              <View style={{ width: 10 }} />
+            </HScroll>
+          </View>
+        )}
 
         {empty ? (
           <View style={styles.empty}>

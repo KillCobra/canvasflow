@@ -10,13 +10,18 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   View,
   useWindowDimensions,
 } from 'react-native';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import Animated, { useAnimatedReaction, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { scheduleOnRN } from 'react-native-worklets';
 
 import { ActionMenu } from '@/components/action-menu';
+import { PostTimePicker } from '@/components/date-picker';
 import { ProfileHeader } from '@/components/profile-mock';
 import { ProjectCard } from '@/components/project-card';
 import { Chip, Icon, IconButton, PressableScale } from '@/components/ui';
@@ -26,14 +31,16 @@ import {
   addPosted,
   addToPlan,
   isPlanned,
-  movePlanned,
+  markPosted,
+  movePlannedTo,
   postedUri,
   prunePlan,
   removeFromPlan,
   removePosted,
+  setPostTime,
   useGridPlan,
 } from '@/lib/grid-plan';
-import { updateThumbnail } from '@/lib/export';
+import { postedPreviews, updateThumbnail } from '@/lib/export';
 import { type ProjectSummary, createGridDoc, listProjects, saveProject } from '@/lib/projects';
 import { MAX_GRID_ROWS, tileCount } from '@/lib/types';
 import { C, R, T } from '@/theme';
@@ -51,6 +58,8 @@ type Tile =
  * puzzle would land out of line.
  */
 export default function GridPlannerScreen() {
+  // Drag-to-reorder runs in worklets; see EditorCanvas for why this opts out of the compiler.
+  'use no memo';
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const plan = useGridPlan();
@@ -58,6 +67,14 @@ export default function GridPlannerScreen() {
   const [numbers, setNumbers] = useState(true);
   const [picking, setPicking] = useState(false);
   const [adding, setAdding] = useState(false);
+  const [scheduling, setScheduling] = useState<ProjectSummary | null>(null);
+  const [posting, setPosting] = useState(false);
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dropTile, setDropTile] = useState<number | null>(null);
+  const dragX = useSharedValue(0);
+  const dragY = useSharedValue(0);
+  const lift = useSharedValue(0);
+  const target = useSharedValue(-1);
 
   useFocusEffect(
     useCallback(() => {
@@ -104,6 +121,78 @@ export default function GridPlannerScreen() {
   const tileW = (width - GAP * 2) / 3;
   const tileH = tileW * (4 / 3);
 
+  // Next scheduled post, soonest first.
+  const next = planned
+    .filter((p) => plan.schedule[p.doc.id])
+    .sort((a, b) => plan.schedule[a.doc.id].at - plan.schedule[b.doc.id].at)[0];
+
+  // --- Drag to reorder: long-press a planned tile, drop it where it should go. ---
+  const plannedCount = plannedTiles.length;
+  const tileOwners = plannedTiles.map((t) => (t.kind === 'planned' ? t.project.doc.id : ''));
+  const tileAt = (x: number, y: number) => {
+    'worklet';
+    const col = Math.max(0, Math.min(2, Math.floor(x / (tileW + GAP))));
+    const row = Math.max(0, Math.floor(y / (tileH + GAP)));
+    return row * 3 + col;
+  };
+  const startDrag = (tile: number) => {
+    const id = tileOwners[tile];
+    if (!id) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setDragId(id);
+  };
+  const drop = (tile: number) => {
+    const id = dragId;
+    setDragId(null);
+    setDropTile(null);
+    if (!id) return;
+    // The item that owns the tile it was dropped on takes its place.
+    const owner = tile < plannedCount ? tileOwners[tile] : plan.items[plan.items.length - 1];
+    const to = plan.items.indexOf(owner);
+    if (to >= 0) {
+      Haptics.selectionAsync();
+      movePlannedTo(id, to);
+    }
+  };
+  const drag = Gesture.Pan()
+    .activateAfterLongPress(300)
+    .onStart((e) => {
+      const tile = tileAt(e.x, e.y);
+      if (tile >= plannedCount) return;
+      dragX.set(e.x);
+      dragY.set(e.y);
+      lift.set(withSpring(1, { damping: 16, stiffness: 260 }));
+      target.set(tile);
+      scheduleOnRN(startDrag, tile);
+    })
+    .onUpdate((e) => {
+      dragX.set(e.x);
+      dragY.set(e.y);
+      target.set(Math.min(tileAt(e.x, e.y), plannedCount - 1));
+    })
+    .onEnd((e) => {
+      lift.set(withSpring(0));
+      scheduleOnRN(drop, Math.min(tileAt(e.x, e.y), plannedCount - 1));
+    })
+    .onFinalize(() => {
+      lift.set(withSpring(0));
+    });
+  useAnimatedReaction(
+    () => target.get(),
+    (t, prev) => {
+      if (t !== prev && t >= 0) scheduleOnRN(setDropTile, t);
+    },
+  );
+  const ghost = useAnimatedStyle(() => ({
+    opacity: lift.get(),
+    transform: [
+      { translateX: dragX.get() - tileW / 2 },
+      { translateY: dragY.get() - tileH / 2 },
+      { scale: 0.9 + lift.get() * 0.18 },
+    ],
+  }));
+  const dragged = dragId ? plannedTiles.find((t) => t.kind === 'planned' && t.project.doc.id === dragId) : undefined;
+
   const newPuzzle = (rows: number) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     const doc = createGridDoc(rows);
@@ -147,14 +236,29 @@ export default function GridPlannerScreen() {
       return;
     }
     const { doc } = tile.project;
-    const index = plan.items.indexOf(doc.id);
-    Alert.alert(doc.name, doc.grid != null ? `Grid puzzle · ${tileCount(doc)} posts` : `Carousel · ${doc.slideCount} slides`, [
+    const when = plan.schedule[doc.id];
+    const kind = doc.grid != null ? `Grid puzzle · ${tileCount(doc)} posts` : `Carousel · ${doc.slideCount} slides`;
+    Alert.alert(doc.name, when ? `${kind}\nGoing up ${formatWhen(when.at)}` : kind, [
       { text: 'Open', onPress: () => router.push(`/editor/${doc.id}`) },
-      ...(index > 0 ? [{ text: 'Move up (post later)', onPress: () => movePlanned(doc.id, -1) }] : []),
-      ...(index < plan.items.length - 1 ? [{ text: 'Move down (post sooner)', onPress: () => movePlanned(doc.id, 1) }] : []),
+      { text: when ? 'Change time' : 'Schedule', onPress: () => setScheduling(tile.project) },
+      { text: 'Mark as posted', onPress: () => posted(tile.project) },
       { text: 'Take off the grid', style: 'destructive' as const, onPress: () => removeFromPlan(doc.id) },
       { text: 'Cancel', style: 'cancel' as const },
     ]);
+  };
+
+  /** Moves a planned post into the posted part of the grid, as it will look once it's up. */
+  const posted = async (project: ProjectSummary) => {
+    setPosting(true);
+    try {
+      const uris = await postedPreviews(project.doc);
+      await markPosted(project.doc.id, uris);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (e) {
+      Alert.alert('Could not mark it as posted', e instanceof Error ? e.message : String(e));
+    } finally {
+      setPosting(false);
+    }
   };
 
   const candidates = (projects ?? []).filter((p) => !plan.items.includes(p.doc.id));
@@ -190,7 +294,7 @@ export default function GridPlannerScreen() {
           <ActivityIndicator color={C.text} />
         </View>
       ) : (
-        <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 40 }}>
+        <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 40 }} scrollEnabled={!dragId}>
           <ProfileHeader posts={tiles.length} planned={plannedTiles.length} />
 
           {misaligned.length > 0 && (
@@ -202,13 +306,22 @@ export default function GridPlannerScreen() {
             </View>
           )}
 
+          {next && (
+            <Pressable onPress={() => setScheduling(next)} style={styles.nextUp}>
+              <Icon name={{ ios: 'bell.fill', android: 'notifications' }} size={15} color={C.accent} />
+              <Text style={styles.nextUpText} numberOfLines={1}>
+                Next up: <Text style={{ color: C.text }}>{next.doc.name}</Text> · {formatWhen(plan.schedule[next.doc.id].at)}
+              </Text>
+            </Pressable>
+          )}
+
           {!empty && (
             <View style={styles.toolbar}>
               <Chip label="Posting order" selected={numbers} onPress={() => setNumbers((v) => !v)} style={{ height: 32 }} />
               <Text style={styles.toolbarText}>
                 {plannedTiles.length ? 'Post 1 first' : 'Nothing planned yet'}
               </Text>
-              {adding && <ActivityIndicator color={C.textDim} size="small" />}
+              {(adding || posting) && <ActivityIndicator color={C.textDim} size="small" />}
             </View>
           )}
 
@@ -237,19 +350,36 @@ export default function GridPlannerScreen() {
               </View>
             </View>
           ) : (
+            <GestureDetector gesture={drag}>
             <View style={styles.grid}>
-              {tiles.map((tile) => (
+              {tiles.map((tile, i) => (
                 <Pressable
                   key={tile.key}
                   onPress={() => tileActions(tile)}
-                  style={({ pressed }) => [{ width: tileW, height: tileH }, styles.tile, pressed && { opacity: 0.7 }]}>
+                  style={({ pressed }) => [
+                    { width: tileW, height: tileH },
+                    styles.tile,
+                    pressed && { opacity: 0.7 },
+                    tile.kind === 'planned' && tile.project.doc.id === dragId && { opacity: 0.35 },
+                  ]}>
                   <TileImage tile={tile} w={tileW} h={tileH} />
+                  {dragId && dropTile === i && <View style={styles.dropTarget} />}
+                  {tile.kind === 'planned' && tile.part === 0 && plan.schedule[tile.project.doc.id] && (
+                    <View style={styles.when}>
+                      <Icon name={{ ios: 'clock.fill', android: 'schedule' }} size={10} color={C.accentInk} />
+                      <Text style={styles.whenText} numberOfLines={1}>
+                        {formatWhen(plan.schedule[tile.project.doc.id].at, true)}
+                      </Text>
+                    </View>
+                  )}
                   {tile.kind === 'planned' && numbers && (
                     <View style={styles.order}>
                       <Text style={styles.orderText}>{tile.order}</Text>
                     </View>
                   )}
-                  {tile.kind === 'planned' && tile.part === 0 && tile.project.doc.grid == null && tile.project.doc.slideCount > 1 && (
+                  {tile.kind === 'planned' &&
+                    ((tile.part === 0 && tile.project.doc.grid == null && tile.project.doc.slideCount > 1) ||
+                      !!tile.project.doc.covers?.[tile.part]) && (
                     <View style={styles.multi}>
                       <Icon name={{ ios: 'square.fill.on.square.fill', android: 'filter_none' }} size={13} color="#FFFFFF" />
                     </View>
@@ -257,15 +387,29 @@ export default function GridPlannerScreen() {
                   {tile.kind === 'posted' && <View style={styles.postedShade} />}
                 </Pressable>
               ))}
+              {dragged && (
+                <Animated.View pointerEvents="none" style={[styles.ghost, { width: tileW, height: tileH }, ghost]}>
+                  <TileImage tile={dragged} w={tileW} h={tileH} />
+                </Animated.View>
+              )}
             </View>
+            </GestureDetector>
           )}
 
           {!empty && (
             <Text style={styles.footer}>
-              Numbered tiles are planned, newest on top. Dimmed ones are already posted. Tap any tile to open it, move it or take it off.
+              Numbered tiles are planned, newest on top; dimmed ones are already posted. Tap a tile to schedule, open or mark it posted. Press and hold to drag it to a new spot.
             </Text>
           )}
         </ScrollView>
+      )}
+
+      {scheduling && (
+        <ScheduleSheet
+          project={scheduling}
+          at={plan.schedule[scheduling.doc.id]?.at}
+          onClose={() => setScheduling(null)}
+        />
       )}
 
       <Modal visible={picking} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setPicking(false)}>
@@ -334,7 +478,168 @@ function TileImage({ tile, w, h }: { tile: Tile; w: number; h: number }) {
   );
 }
 
+/** "Today 7:00 PM", "Tomorrow 9:00 AM", "Fri 12 Oct, 9:00 AM" (or a short form for badges). */
+function formatWhen(at: number, short = false) {
+  const d = new Date(at);
+  const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const today = new Date();
+  const days = Math.round((new Date(d).setHours(0, 0, 0, 0) - new Date(today).setHours(0, 0, 0, 0)) / 86_400_000);
+  if (days === 0) return short ? time : `today ${time}`;
+  if (days === 1) return short ? `Tmrw ${time}` : `tomorrow ${time}`;
+  const day = d.toLocaleDateString([], short ? { weekday: 'short' } : { weekday: 'short', day: 'numeric', month: 'short' });
+  return short ? `${day} ${time}` : `${day}, ${time}`;
+}
+
+/** Quick picks: the next few sensible posting slots. */
+function quickTimes() {
+  const at = (days: number, hour: number) => {
+    const d = new Date();
+    d.setDate(d.getDate() + days);
+    d.setHours(hour, 0, 0, 0);
+    return d;
+  };
+  const options = [
+    { label: 'Tonight 7 PM', date: at(0, 19) },
+    { label: 'Tomorrow 9 AM', date: at(1, 9) },
+    { label: 'Tomorrow 6 PM', date: at(1, 18) },
+  ];
+  const saturday = (6 - new Date().getDay() + 7) % 7 || 7;
+  options.push({ label: 'Saturday 11 AM', date: at(saturday, 11) });
+  return options.filter((o) => o.date.getTime() > Date.now() + 60_000);
+}
+
+/** When a planned post goes up, with a reminder at that time. */
+function ScheduleSheet({ project, at, onClose }: { project: ProjectSummary; at?: number; onClose: () => void }) {
+  const insets = useSafeAreaInsets();
+  const [date, setDate] = useState(() => (at ? new Date(at) : (quickTimes()[0]?.date ?? new Date(Date.now() + 3_600_000))));
+  const [remind, setRemind] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const { doc } = project;
+  const grid = doc.grid != null;
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const reminded = await setPostTime(
+        doc.id,
+        date.getTime(),
+        remind
+          ? {
+              title: `Time to post “${doc.name}”`,
+              body: grid
+                ? `Your grid puzzle is ready: post 1 (bottom right) first, then the rest in order.`
+                : `Your ${doc.slideCount}-slide carousel is ready to export and post.`,
+            }
+          : undefined,
+      );
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      if (remind && !reminded && date.getTime() > Date.now()) {
+        Alert.alert('Scheduled, without a reminder', 'Turn on notifications for Seam in Settings to get reminded.');
+      }
+      onClose();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+      <View style={[styles.sheet, { paddingBottom: insets.bottom + 16 }]}>
+        <View style={styles.sheetHeader}>
+          <Text style={styles.sheetTitle}>Schedule</Text>
+          <IconButton label="Close" icon={{ ios: 'xmark', android: 'close' }} onPress={onClose} />
+        </View>
+        <ScrollView contentContainerStyle={{ paddingHorizontal: 20, gap: 18 }}>
+          <Text style={styles.emptyText}>
+            When should “{doc.name}” go up? Seam will remind you then, with everything ready to post.
+          </Text>
+          <View style={styles.quick}>
+            {quickTimes().map((q) => (
+              <Chip
+                key={q.label}
+                label={q.label}
+                selected={Math.abs(q.date.getTime() - date.getTime()) < 60_000}
+                onPress={() => setDate(q.date)}
+                style={{ height: 34 }}
+              />
+            ))}
+          </View>
+          <View style={{ alignItems: 'center' }}>
+            <PostTimePicker value={date} onChange={setDate} />
+          </View>
+          <View style={styles.remindRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.remindTitle}>Remind me</Text>
+              <Text style={styles.remindDetail}>{formatWhen(date.getTime())}</Text>
+            </View>
+            <Switch value={remind} onValueChange={setRemind} trackColor={{ true: C.accent, false: C.surfaceHi }} />
+          </View>
+          <PressableScale onPress={save} disabled={saving} style={[styles.cta, { alignSelf: 'stretch' }]}>
+            <Text style={styles.ctaText}>{saving ? 'Saving…' : 'Save'}</Text>
+          </PressableScale>
+          {at != null && (
+            <Pressable
+              onPress={async () => {
+                await setPostTime(doc.id, null);
+                onClose();
+              }}
+              hitSlop={8}
+              style={{ alignSelf: 'center' }}>
+              <Text style={[styles.link, { color: C.danger }]}>Remove time</Text>
+            </Pressable>
+          )}
+        </ScrollView>
+      </View>
+    </Modal>
+  );
+}
+
 const styles = StyleSheet.create({
+  nextUp: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginHorizontal: 16,
+    marginBottom: 12,
+    paddingHorizontal: 12,
+    height: 40,
+    borderRadius: R.md,
+    backgroundColor: C.accent + '14',
+    borderWidth: 1,
+    borderColor: C.accent + '40',
+  },
+  nextUpText: { ...T.medium, color: C.textDim, fontSize: 13, flex: 1 },
+  when: {
+    position: 'absolute',
+    left: 6,
+    bottom: 6,
+    right: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    alignSelf: 'flex-start',
+    paddingHorizontal: 6,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: C.accent,
+  },
+  whenText: { ...T.semibold, color: C.accentInk, fontSize: 10, flexShrink: 1 },
+  dropTarget: { ...StyleSheet.absoluteFill, borderWidth: 3, borderColor: C.accent },
+  ghost: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    overflow: 'hidden',
+    borderRadius: 6,
+    shadowColor: '#000',
+    shadowOpacity: 0.5,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 8 },
+  },
+  quick: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  remindRow: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderRadius: R.lg, backgroundColor: C.surface },
+  remindTitle: { ...T.medium, fontSize: 15 },
+  remindDetail: { ...T.body, color: C.textDim, fontSize: 13 },
   screen: { flex: 1, backgroundColor: C.bg },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 12, height: 52 },
   headerTitle: { ...T.display, fontSize: 24 },

@@ -109,6 +109,27 @@ internal enum SeamVision {
       .sorted { $0.width * $0.height > $1.width * $1.height }
   }
 
+  // MARK: - Labels
+
+  /// What's in the photo (VNClassifyImageRequest), most confident first, for alt text.
+  static func classify(uri: String, limit: Int) throws -> [String] {
+    let url = try fileURL(from: uri, label: "uri")
+    let image = try loadImage(url, maxPixelSize: 1024)
+    let request = VNClassifyImageRequest()
+    preferCPUOnSimulator(request)
+    let handler = VNImageRequestHandler(cgImage: image.cgImage, orientation: image.orientation, options: [:])
+    do {
+      try handler.perform([request])
+    } catch {
+      throw SeamVisionError("Image classification failed: \(error.localizedDescription)")
+    }
+    return (request.results ?? [])
+      .filter { $0.confidence >= 0.3 }
+      .sorted { $0.confidence > $1.confidence }
+      .prefix(max(1, limit))
+      .map { $0.identifier.replacingOccurrences(of: "_", with: " ") }
+  }
+
   // MARK: - Subject lift
 
   /// Lifts all foreground instances out of the photo into a tightly cropped PNG with alpha.

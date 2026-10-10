@@ -75,7 +75,34 @@ export type PanVideoOptions = {
   move: number;
   /** Optional page dots under the window, Instagram style. y = center line in output px. */
   dots?: { y: number; color: string; activeColor: string; size: number; gap: number } | null;
+  /** 'zoom': a slow push-in on each slide that eases back for the swipe. Default 'none'. */
+  motion?: 'none' | 'zoom';
+  /** Optional soundtrack, e.g. a song from Files (from `start` s, faded out at the end). */
+  audio?: { uri: string; start: number; volume: number } | null;
   /** file:// URI where the .mp4 is written (overwrite if exists). */
+  outputUri: string;
+};
+
+export type GridRevealOptions = {
+  /** file:// URIs of each tile in reading order (left to right, top to bottom). */
+  tiles: string[];
+  columns: number;
+  rows: number;
+  /** Output px, e.g. 1080 x 1920 */
+  width: number;
+  height: number;
+  /** '#RRGGBB' */
+  background: string;
+  /** Px between tiles */
+  gap: number;
+  /** Tile indices in the order they appear (posting order). */
+  order: number[];
+  fps: number;
+  /** Seconds between tiles */
+  step: number;
+  /** Seconds on the finished grid */
+  hold: number;
+  audio?: { uri: string; start: number; volume: number } | null;
   outputUri: string;
 };
 
@@ -88,6 +115,7 @@ type SeamVideoExportEvents = {
 declare class SeamVideoExportNativeModule extends NativeModule<SeamVideoExportEvents> {
   exportSlideVideo(id: string, options: ExportSlideOptions): Promise<string>;
   exportPanVideo(id: string, options: PanVideoOptions): Promise<string>;
+  exportGridReveal(id: string, options: GridRevealOptions): Promise<string>;
 }
 
 // Null in Expo Go / Android / web, where the native module isn't compiled in.
@@ -171,6 +199,16 @@ export async function exportPanVideo(
       backgroundImage: options.backgroundImage ?? null,
       cornerRadius: options.cornerRadius ?? 0,
       dots: options.dots ?? null,
+      motion: options.motion ?? 'none',
+      audio: options.audio ?? null,
     }),
+  );
+}
+
+/** A Reel of a grid puzzle assembling tile by tile, in posting order. Resolves with outputUri. */
+export async function exportGridReveal(options: GridRevealOptions, onProgress?: (fraction: number) => void): Promise<string> {
+  const native = requireNative();
+  return withProgress(native, 'seam-grid', onProgress, (id) =>
+    native.exportGridReveal(id, { ...options, audio: options.audio ?? null }),
   );
 }

@@ -2,6 +2,7 @@ import { Directory, File, Paths } from 'expo-file-system';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import { useSyncExternalStore } from 'react';
 
+import { cancelReminder, scheduleReminder } from './reminders';
 import { uid } from './types';
 
 // The grid planner's plan: carousels and grid puzzles queued for the profile
@@ -10,9 +11,11 @@ import { uid } from './types';
 // documents/grid-plan.json; posted photos are small copies in documents/grid.
 
 export type PostedPhoto = { id: string; file: string };
-export type GridPlan = { items: string[]; posted: PostedPhoto[] };
+/** When a planned post goes up, and the id of its reminder (if one is set). */
+export type Slot = { at: number; reminder?: string };
+export type GridPlan = { items: string[]; posted: PostedPhoto[]; schedule: Record<string, Slot> };
 
-const EMPTY: GridPlan = { items: [], posted: [] };
+const EMPTY: GridPlan = { items: [], posted: [], schedule: {} };
 const MAX_POSTED = 30;
 
 const planFile = () => new File(Paths.document, 'grid-plan.json');
@@ -33,7 +36,13 @@ function read(): GridPlan {
     const posted = Array.isArray(raw.posted)
       ? raw.posted.filter((p): p is PostedPhoto => typeof p?.id === 'string' && typeof p?.file === 'string' && new File(postedDir(), p.file).exists)
       : [];
-    return { items: [...new Set(items)], posted };
+    const schedule: Record<string, Slot> = {};
+    if (raw.schedule && typeof raw.schedule === 'object') {
+      for (const [id, slot] of Object.entries(raw.schedule)) {
+        if (items.includes(id) && typeof slot?.at === 'number') schedule[id] = { at: slot.at, reminder: slot.reminder };
+      }
+    }
+    return { items: [...new Set(items)], posted, schedule };
   } catch {
     return EMPTY;
   }
@@ -70,7 +79,47 @@ export function addToPlan(projectId: string) {
 
 export function removeFromPlan(projectId: string) {
   const p = current();
-  save({ ...p, items: p.items.filter((i) => i !== projectId) });
+  const { [projectId]: slot, ...schedule } = p.schedule;
+  cancelReminder(slot?.reminder);
+  save({ ...p, items: p.items.filter((i) => i !== projectId), schedule });
+}
+
+/** Moves a planned project to position `to` (0 = top of the grid, posted last). */
+export function movePlannedTo(projectId: string, to: number) {
+  const p = current();
+  const from = p.items.indexOf(projectId);
+  const target = Math.max(0, Math.min(p.items.length - 1, to));
+  if (from < 0 || from === target) return;
+  const items = [...p.items];
+  items.splice(target, 0, items.splice(from, 1)[0]);
+  save({ ...p, items });
+}
+
+/** Sets (or clears, with null) when a planned post goes up, rescheduling its reminder. */
+export async function setPostTime(projectId: string, at: number | null, reminder?: { title: string; body: string }) {
+  const p = current();
+  await cancelReminder(p.schedule[projectId]?.reminder);
+  const schedule = { ...current().schedule };
+  if (at == null) delete schedule[projectId];
+  else {
+    const id = reminder ? await scheduleReminder({ ...reminder, at, url: '/grid' }).catch(() => null) : null;
+    schedule[projectId] = { at, reminder: id ?? undefined };
+  }
+  save({ ...current(), schedule });
+  return schedule[projectId]?.reminder != null;
+}
+
+/**
+ * Marks a planned post as posted: its tiles (from `tileUris`, in reading
+ * order) become the newest posted photos, and it leaves the plan.
+ */
+export async function markPosted(projectId: string, tileUris: string[]) {
+  const added = await importPostedPhotos(tileUris);
+  const p = current();
+  const { [projectId]: slot, ...schedule } = p.schedule;
+  cancelReminder(slot?.reminder);
+  const rest = p.posted.filter((x) => !added.some((a) => a.id === x.id));
+  save({ items: p.items.filter((i) => i !== projectId), posted: [...added, ...rest], schedule });
 }
 
 export const isPlanned = (projectId: string) => current().items.includes(projectId);
@@ -99,8 +148,15 @@ export function prunePlan(existing: Set<string>) {
  */
 export async function addPosted(uris: string[]) {
   const room = MAX_POSTED - current().posted.length;
+  const added = await importPostedPhotos(uris.slice(0, Math.max(0, room)));
+  const p = current();
+  save({ ...p, posted: [...p.posted, ...added] });
+  return added.length;
+}
+
+async function importPostedPhotos(uris: string[]) {
   const added: PostedPhoto[] = [];
-  for (const uri of uris.slice(0, Math.max(0, room))) {
+  for (const uri of uris) {
     const context = ImageManipulator.manipulate(uri);
     context.resize({ width: 540 });
     const image = await context.renderAsync();
@@ -115,9 +171,7 @@ export async function addPosted(uris: string[]) {
       context.release();
     }
   }
-  const p = current();
-  save({ ...p, posted: [...p.posted, ...added] });
-  return added.length;
+  return added;
 }
 
 export function removePosted(id: string) {

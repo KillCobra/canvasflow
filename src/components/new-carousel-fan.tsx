@@ -136,6 +136,18 @@ export function NewCarouselFan({
         style={[styles.header, { top: baseline - tallest - 178 }, header]}>
         <Text style={styles.title}>Deal a new carousel</Text>
         <Text style={styles.subtitle}>{folderName ? `Pick a shape · it goes in ${folderName}` : 'Pick a shape to start'}</Text>
+        <Pressable
+          onPress={() => {
+            Haptics.selectionAsync();
+            onClose();
+            router.push('/photos');
+          }}
+          hitSlop={8}
+          style={styles.photosLink}
+          accessibilityRole="button">
+          <Icon name={{ ios: 'photo.on.rectangle.angled', android: 'add_photo_alternate' }} size={14} color={C.accent} />
+          <Text style={styles.photosLinkText}>Start from photos</Text>
+        </Pressable>
         <Glass style={styles.stepper}>
           <Pressable onPress={() => change(-1)} hitSlop={10} disabled={slides <= 1} accessibilityLabel="Fewer slides">
             <Icon name={{ ios: 'minus', android: 'remove' }} size={15} color={slides <= 1 ? C.textFaint : C.text} />
@@ -344,6 +356,8 @@ const styles = StyleSheet.create({
   header: { position: 'absolute', left: 0, right: 0, alignItems: 'center', gap: 6 },
   title: { ...T.display, fontSize: 34, letterSpacing: -0.3 },
   subtitle: { ...T.body, color: C.textDim, fontSize: 14 },
+  photosLink: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 },
+  photosLinkText: { ...T.medium, color: C.accent, fontSize: 14 },
   stepper: {
     marginTop: 12,
     flexDirection: 'row',

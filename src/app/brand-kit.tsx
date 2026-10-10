@@ -10,7 +10,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ColorWell } from '@/components/color-well';
 import { Row, Section } from '@/components/list';
 import { useNamePrompt } from '@/components/menu-sheet';
-import { Icon, IconButton, PressableScale } from '@/components/ui';
+import { Chip, HScroll, Icon, IconButton, PressableScale } from '@/components/ui';
 import {
   BRAND_ASSET_LIMIT,
   BRAND_COLOR_LIMIT,
@@ -22,6 +22,12 @@ import {
   addBrandColor,
   addBrandLogo,
   brandAssetUri,
+  createBrandKit,
+  deleteBrandKit,
+  isDefaultKit,
+  renameBrandKit,
+  switchBrandKit,
+  useBrandKits,
   brandLogoUri,
   normalizeHex,
   promoteBrandColor,
@@ -54,6 +60,7 @@ export default function BrandKitScreen() {
   const assets = useBrandAssets();
   const fonts = useBrandFonts();
   const profile = useBrandProfile();
+  const kits = useBrandKits();
   useFontsVersion();
   const [draft, setDraft] = useState<string | null>(null);
   const [busy, setBusy] = useState<null | 'logo' | 'asset' | 'palette'>(null);
@@ -203,6 +210,40 @@ export default function BrandKitScreen() {
       { text: 'Cancel', style: 'cancel' as const },
     ]);
 
+  // --- Kits ------------------------------------------------------------------
+
+  const newKit = () =>
+    Alert.alert('New brand kit', 'For a client, a side project or a second account.', [
+      {
+        text: 'Start empty',
+        onPress: () => prompt('Name the kit', '', (name) => createBrandKit(name), { placeholder: 'Client name' }),
+      },
+      {
+        text: 'Copy this kit',
+        onPress: () => prompt('Name the kit', '', (name) => createBrandKit(name, true), { placeholder: 'Client name' }),
+      },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+
+  const kitActions = (id: string, name: string) =>
+    Alert.alert(name, undefined, [
+      { text: 'Rename', onPress: () => prompt('Rename kit', name, (next) => renameBrandKit(id, next)) },
+      ...(isDefaultKit(id)
+        ? []
+        : [
+            {
+              text: 'Delete kit',
+              style: 'destructive' as const,
+              onPress: () =>
+                Alert.alert(`Delete ${name}?`, 'Its logos, images, colours and fonts go with it. Carousels keep their copies.', [
+                  { text: 'Cancel', style: 'cancel' },
+                  { text: 'Delete', style: 'destructive', onPress: () => deleteBrandKit(id) },
+                ]),
+            },
+          ]),
+      { text: 'Cancel', style: 'cancel' as const },
+    ]);
+
   // --- Details ---------------------------------------------------------------
 
   const editDetail = (key: keyof BrandProfile, title: string, placeholder: string) =>
@@ -224,6 +265,30 @@ export default function BrandKitScreen() {
       </View>
 
       <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: insets.bottom + 48, gap: 30 }}>
+        <View style={{ marginHorizontal: -20, marginBottom: -14 }}>
+          <HScroll>
+            <View style={{ width: 12 }} />
+            {kits.kits.map((k) => (
+              <Pressable key={k.id} onLongPress={() => kitActions(k.id, k.name)} delayLongPress={350}>
+                <Chip
+                  label={k.name}
+                  selected={k.id === kits.active}
+                  onPress={() => {
+                    if (k.id === kits.active) kitActions(k.id, k.name);
+                    else {
+                      Haptics.selectionAsync();
+                      switchBrandKit(k.id);
+                    }
+                  }}
+                  style={{ height: 34 }}
+                />
+              </Pressable>
+            ))}
+            <Chip label="+ New kit" onPress={newKit} style={{ height: 34 }} />
+            <View style={{ width: 12 }} />
+          </HScroll>
+        </View>
+
         {/* The kit at a glance. */}
         <View style={[styles.board, { backgroundColor: boardBg ?? C.surface }]}>
           <View style={styles.boardTop}>

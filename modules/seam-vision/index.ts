@@ -8,6 +8,7 @@ type LiftedSubject = { uri: string; width: number; height: number; rect: NormRec
 declare class SeamVisionNativeModule extends NativeModule {
   isSubjectLiftSupported(): boolean;
   detectFaces(uri: string): Promise<NormRect[]>;
+  classifyImage(uri: string, limit: number): Promise<string[]>;
   liftSubject(uri: string, outputUri: string, maxEdge: number): Promise<LiftedSubject | null>;
 }
 
@@ -43,6 +44,11 @@ export function isSubjectLiftAvailable(): boolean {
     }
   }
   return subjectLiftSupported;
+}
+
+/** What the photo shows (VNClassifyImageRequest labels like "beach", "dog"), most confident first. */
+export async function classifyImage(uri: string, limit = 6): Promise<string[]> {
+  return requireNative().classifyImage(uri, limit);
 }
 
 /** Face rectangles (VNDetectFaceRectanglesRequest), largest first. Resolves [] if none. */

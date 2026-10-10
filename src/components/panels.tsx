@@ -18,14 +18,16 @@ import {
   magicLayout,
 } from '@/lib/layouts';
 import { useEditor } from '@/lib/store';
+import { type DoodleShape, doodle, doodleStrokes } from '@/lib/template-kit';
 import { TEXTURES, textureBackground } from '@/lib/textures';
 import { ASPECTS, type Background, type Doc, MAX_GRID_ROWS, type PhotoLayer, SLIDE_WIDTH } from '@/lib/types';
 import { C, GRADIENTS, PALETTE, R, T } from '@/theme';
 
 import { BrandColors } from './brand-colors';
 import { ColorWell } from './color-well';
+import { StrokeLine } from './drawing-node';
 import { BackgroundFill, DocRenderer } from './doc-renderer';
-import { Chip, HScroll, IconButton, Slider, Swatch, ToolButton } from './ui';
+import { Chip, HScroll, Icon, IconButton, Slider, Swatch, ToolButton } from './ui';
 
 export const PANEL_HEIGHT = 168;
 
@@ -380,13 +382,42 @@ function LayoutGlyph({ id }: { id: LayoutId }) {
 
 const STICKERS = ['✨', '❤️', '🔥', '⭐️', '🌸', '☀️', '🌊', '📍', '🎞️', '👀', '🫶', '➡️'];
 
+/** Hand-drawn ink stickers, in the order they're offered, with a preview box size. */
+export const DOODLES: { shape: DoodleShape; label: string; w: number; h: number }[] = [
+  { shape: 'arrow', label: 'Arrow', w: 40, h: 20 },
+  { shape: 'underline', label: 'Underline', w: 40, h: 10 },
+  { shape: 'circle', label: 'Circle', w: 38, h: 26 },
+  { shape: 'heart', label: 'Heart', w: 26, h: 24 },
+  { shape: 'star', label: 'Star', w: 28, h: 28 },
+  { shape: 'sparkle', label: 'Sparkle', w: 26, h: 26 },
+  { shape: 'route', label: 'Route', w: 42, h: 12 },
+  { shape: 'squiggle', label: 'Squiggle', w: 40, h: 12 },
+];
+
+/** A doodle drawn small for its button. */
+function DoodleGlyph({ shape, w, h, color }: { shape: DoodleShape; w: number; h: number; color: string }) {
+  const { strokes } = doodleStrokes(doodle(shape, 0, 0, w, h, color, { width: shape === 'route' ? 3.4 : 2.2 }));
+  const size = { width: 48, height: 40 };
+  return (
+    <Canvas style={size}>
+      <Group transform={[{ translateX: size.width / 2 }, { translateY: size.height / 2 }]}>
+        {strokes.map((s, i) => (
+          <StrokeLine key={i} stroke={s} />
+        ))}
+      </Group>
+    </Canvas>
+  );
+}
+
 export function ElementsPanel({
   onAddShape,
   onAddSticker,
   onAddGrid,
   onAddLogo,
+  onAddDoodle,
   onClose,
 }: {
+  onAddDoodle: (shape: DoodleShape) => void;
   onAddShape: (shape: 'rect' | 'circle' | 'line') => void;
   onAddSticker: (emoji: string) => void;
   onAddGrid: (id: GridId) => void;
@@ -467,6 +498,20 @@ export function ElementsPanel({
         <ToolButton icon={{ ios: 'circle.fill', android: 'circle' }} label="Circle" onPress={() => onAddShape('circle')} />
         <ToolButton icon={{ ios: 'minus', android: 'remove' }} label="Line" onPress={() => onAddShape('line')} />
         <View style={styles.vDivider} />
+        {DOODLES.map((d) => (
+          <Pressable
+            key={d.shape}
+            accessibilityRole="button"
+            accessibilityLabel={`${d.label} doodle`}
+            onPress={() => {
+              Haptics.selectionAsync();
+              onAddDoodle(d.shape);
+            }}
+            style={({ pressed }) => [styles.doodle, { opacity: pressed ? 0.6 : 1 }]}>
+            <DoodleGlyph shape={d.shape} w={d.w} h={d.h} color={C.text} />
+          </Pressable>
+        ))}
+        <View style={styles.vDivider} />
         {STICKERS.map((s) => (
           <Pressable key={s} onPress={() => onAddSticker(s)} style={styles.sticker}>
             <Text style={{ fontSize: 26 }}>{s}</Text>
@@ -478,9 +523,11 @@ export function ElementsPanel({
 }
 
 /** Rows of a grid puzzle: each row is three posts on the profile. */
-export function GridRowsPanel({ onClose }: { onClose: () => void }) {
+export function GridRowsPanel({ onTile, onClose }: { onTile: (tile: number) => void; onClose: () => void }) {
   const rows = useEditor((s) => s.doc!.grid ?? 1);
+  const covers = useEditor((s) => s.doc!.covers);
   const setRows = useEditor((s) => s.setGridRows);
+  const total = rows * 3;
   const change = (n: number) => {
     Haptics.selectionAsync();
     setRows(n);
@@ -506,15 +553,42 @@ export function GridRowsPanel({ onClose }: { onClose: () => void }) {
           onPress={() => change(rows + 1)}
         />
       </View>
-      <Text style={[styles.layoutHint, { paddingHorizontal: 4 }]}>
-        Each tile is its own post. Export numbers them in posting order: last tile first, so the picture lines up on your profile.
-      </Text>
+      <View style={styles.tilesRow}>
+        <View style={[styles.tiles, { height: rows * 30 + (rows - 1) * 3 }]}>
+          {Array.from({ length: total }, (_, i) => {
+            const linked = !!covers?.[i];
+            return (
+              <Pressable
+                key={i}
+                onPress={() => onTile(i)}
+                accessibilityRole="button"
+                accessibilityLabel={linked ? `Post ${total - i}, a carousel` : `Post ${total - i}`}
+                style={({ pressed }) => [styles.tileCell, linked && styles.tileCellLinked, pressed && { opacity: 0.6 }]}>
+                {linked ? (
+                  <Icon name={{ ios: 'square.fill.on.square.fill', android: 'filter_none' }} size={11} color={C.accentInk} />
+                ) : (
+                  <Text style={styles.tileNumber}>{total - i}</Text>
+                )}
+              </Pressable>
+            );
+          })}
+        </View>
+        <Text style={[styles.layoutHint, { flex: 1 }]}>
+          Tap a post to turn it into a carousel whose first slide is that tile. Numbers are the posting order.
+        </Text>
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  doodle: { width: 52, height: 48, borderRadius: 10, backgroundColor: C.surfaceHi, alignSelf: 'center', alignItems: 'center', justifyContent: 'center' },
   rowsLine: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 4 },
+  tilesRow: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 4 },
+  tiles: { width: 3 * 24 + 6, flexDirection: 'row', flexWrap: 'wrap', gap: 3 },
+  tileCell: { width: 24, height: 30, borderRadius: 4, backgroundColor: C.surfaceHi, alignItems: 'center', justifyContent: 'center' },
+  tileCellLinked: { backgroundColor: C.accent },
+  tileNumber: { ...T.semibold, color: C.textDim, fontSize: 11 },
   rowsValue: { ...T.display, fontSize: 26 },
   panel: { minHeight: PANEL_HEIGHT, gap: 6, paddingBottom: 4 },
   panelHeader: {

@@ -30,6 +30,16 @@ Subject lift needs the Neural Engine, so it fails in the iOS Simulator; face det
 - **Apply brand kit** (editor ••• menu, or "With my brand" on a template): recolours a carousel by role (page, ink, accents), swaps in the brand fonts and replaces `@yourname` with your handle, keeping text readable. Up to four looks per kit, live preview, one undo step.
 - **Grid puzzles**: a canvas of 3 × 1–4 tiles at 3:4, Instagram's profile shape. One photo spreads across the whole grid; several fill the tiles. Export saves each tile as its own post, numbered in posting order (bottom-right first), or the full picture.
 - **Grid planner** (Projects → grid button, or You → Grid planner): a mock profile from the brand kit with queued carousels and puzzles on top in posting order, photos of existing posts below, and a warning when a puzzle would start mid-row.
+- **Scheduling**: give a planned post a time (quick picks or the system calendar) and get a local reminder then; tapping it opens the planner. "Mark as posted" moves the post's tiles into the posted part of the grid. Press and hold a tile to drag it to a new spot.
+- **Grid cover carousels**: in a grid puzzle's Grid panel, tap a post to make it the first slide of a new carousel. The tile stays in sync when the puzzle changes, and export and the planner mark it.
+- **Start from photos** (Home, or the + fan): pick photos, see the templates that fit them filled with your own photos (crops keep faces centred and off seams), tap one to build the carousel.
+- **Shuffle style** (editor •••): six restyles from curated palettes and font pairings (your brand's looks first), applied through the brand recolouring engine.
+- **End card** (editor •••): a last slide with the brand logo, name, handle, a follow pill and website.
+- **Save as template** (editor •••): photos become empty frames; saved designs appear under Templates → Mine and on Home.
+- **Several brand kits**: switch, copy, rename or delete kits from the top of the Brand kit screen; Apply brand kit can use any of them.
+- **Doodle stickers**: arrows, underlines, circles, hearts, stars, sparkles, routes and squiggles under Shapes, in the brand's lead colour.
+- **Caption, hashtags and alt text** (Export → Caption): written on the device by Apple's Foundation Models when Apple Intelligence is available (`modules/seam-ai`), otherwise from the slides' text and Vision photo labels. Copy the caption with chosen hashtags; copy alt text per slide.
+- **Motion Reels**: swipe videos and Reels can add a song from Files (faded out at the end), a gentle zoom between swipes, and a pace that times swipes to the beat. Grid puzzles export a 9:16 reveal reel, tiles landing in posting order.
 - **Settings**: default format and slide count for new carousels, snapping, JPEG or PNG export, storage use (carousels, brand kit, cache, free space), Clear cache, Remove unused media, clear favourites, delete all carousels, and version / build / runtime.
 - **Onboarding**: skippable pages on first launch, ending with "What will you make?" (Travel, Photo dump, Monthly recap, Events…). The picks drive a For you row on Home. You can also open a sample project.
 - **Video layers**: add clips alongside photos. They play muted and looping in the editor (with sound in the preview). Trim on a filmstrip (drag either handle, or the middle to slide the window), mute, and double-tap to reposition the clip inside its frame. In a native build, slides with video export as H.264 MP4s with audio; everything else on the slide is composited over and under the clip.
@@ -81,7 +91,8 @@ src/lib/            types, store (zustand + history), projects (file storage), i
                     layouts (incl. grids and Magic), geometry, adjust (colour matrices), settings,
                     export (offscreen render + save; video slides and swipe videos via the native encoder)
 modules/seam-video-export/  local Expo module: AVFoundation slide compositor, swipe-video panner, H.264 encoder
-modules/seam-vision/        local Expo module: Vision face detection and subject lift (cutouts)
+modules/seam-vision/        local Expo module: Vision face detection, photo labels and subject lift (cutouts)
+modules/seam-ai/            local Expo module: captions, hashtags and alt text with Apple Foundation Models
 templates/remote.json       sample remote template feed
 src/theme.ts        colors, radii and type tokens
 assets/brand/       icon source (seam-mark.svg)

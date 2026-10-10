@@ -3,6 +3,7 @@ import { File, Paths } from 'expo-file-system';
 import { useSyncExternalStore } from 'react';
 
 import { DEFAULT_ADJUST } from './adjust';
+import { useMyTemplates } from './my-templates';
 import { TEMPLATES } from './template-catalog';
 import { type DoodleShape, type Template, doodleStrokes } from './template-kit';
 import { measureText } from './text';
@@ -128,6 +129,24 @@ export function forYou(list: Template[], interests: string[]): Template[] {
 /** Turns a template into a fresh document (new ids, measured text). */
 export function instantiate(t: Template): Doc {
   const now = Date.now();
+  if (t.doc) {
+    // A saved design: fresh ids, groups kept together under new group ids.
+    const groups = new Map<string, string>();
+    const regroup = (g?: string) => {
+      if (!g) return undefined;
+      if (!groups.has(g)) groups.set(g, uid());
+      return groups.get(g);
+    };
+    return {
+      ...t.doc,
+      id: uid(),
+      name: t.name,
+      folder: undefined,
+      layers: t.doc.layers.map((l) => ({ ...l, id: uid(), group: regroup(l.group) })),
+      createdAt: now,
+      updatedAt: now,
+    };
+  }
   const layers: Layer[] = t.items.map((item): Layer => {
     const base = { id: uid(), scale: 1, opacity: 1 };
     if (item.kind === 'slot') {
@@ -299,6 +318,7 @@ export function useTemplates(): Template[] {
     },
     () => remote,
   );
+  const mine = useMyTemplates();
   const ids = new Set(version.map((t) => t.id));
-  return [...TEMPLATES.filter((t) => !ids.has(t.id)), ...version];
+  return [...mine, ...TEMPLATES.filter((t) => !ids.has(t.id)), ...version];
 }

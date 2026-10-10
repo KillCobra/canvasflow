@@ -1,7 +1,7 @@
 import * as Haptics from 'expo-haptics';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useRef, useState } from 'react';
-import { FlatList, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { Alert, FlatList, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
@@ -11,7 +11,9 @@ import {
   startFromTemplate,
   stripSize,
 } from '@/components/template-thumb';
+import { useNamePrompt } from '@/components/menu-sheet';
 import { IconButton, PressableScale } from '@/components/ui';
+import { deleteMyTemplate, isMyTemplate, renameMyTemplate } from '@/lib/my-templates';
 import { useBrandColors, useBrandFonts } from '@/lib/brand';
 import { templateHeight, useTemplates } from '@/lib/templates';
 import { ASPECTS, SLIDE_WIDTH } from '@/lib/types';
@@ -23,6 +25,7 @@ export default function TemplateDetailScreen() {
   const insets = useSafeAreaInsets();
   const { width, height: screenH } = useWindowDimensions();
   const template = useTemplates().find((t) => t.id === id);
+  const [prompt, promptElement] = useNamePrompt();
   const brandColors = useBrandColors();
   const brandFonts = useBrandFonts();
   const hasBrand = brandColors.length > 0 || brandFonts.length > 0;
@@ -44,7 +47,9 @@ export default function TemplateDetailScreen() {
   // Big enough to judge, small enough to leave room for the strip and details.
   const slideW = Math.min(width - 56, (screenH * 0.4 * SLIDE_WIDTH) / H);
   const pages = Array.from({ length: template.slideCount }, (_, i) => i);
-  const photos = template.items.filter((i) => i.kind === 'slot').length;
+  const photos = template.doc
+    ? template.doc.layers.filter((l) => l.type === 'photo').length
+    : template.items.filter((i) => i.kind === 'slot').length;
   const strip = stripSize(template, 84, width - 40);
   const segment = strip.width / template.slideCount;
 
@@ -64,10 +69,31 @@ export default function TemplateDetailScreen() {
     <View style={styles.screen}>
       <View style={styles.header}>
         <IconButton label="Close" icon={{ ios: 'xmark', android: 'close' }} onPress={() => router.back()} />
-        <View style={styles.heart}>
+        <View style={[styles.heart, { flexDirection: 'row', alignItems: 'center', gap: 4 }]}>
+          {isMyTemplate(template) && (
+            <IconButton
+              label="Template options"
+              icon={{ ios: 'ellipsis', android: 'more_horiz' }}
+              onPress={() =>
+                Alert.alert(template.name, 'Saved from your own carousel.', [
+                  { text: 'Rename', onPress: () => prompt('Rename template', template.name, (n) => renameMyTemplate(template.id, n)) },
+                  {
+                    text: 'Delete template',
+                    style: 'destructive',
+                    onPress: () => {
+                      deleteMyTemplate(template.id);
+                      router.back();
+                    },
+                  },
+                  { text: 'Cancel', style: 'cancel' },
+                ])
+              }
+            />
+          )}
           <FavoriteButton id={template.id} size={21} />
         </View>
       </View>
+      {promptElement}
 
       <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 110 }}>
         <FlatList

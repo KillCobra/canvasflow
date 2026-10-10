@@ -8,6 +8,49 @@ export type Release = { id: string; version: string; date: string; title: string
 
 export const CHANGELOG: Release[] = [
   {
+    id: '2026-10-plan-post',
+    version: '1.0.0',
+    date: 'October 2026',
+    title: 'Plan it, post it',
+    items: [
+      {
+        icon: { ios: 'bell.badge', android: 'notifications' },
+        title: 'Schedule and reminders',
+        detail: 'Give planned posts a time and Seam reminds you when it’s time to post. Mark them posted and they join your grid.',
+      },
+      {
+        icon: { ios: 'hand.draw', android: 'drag_pan' },
+        title: 'Drag to reorder',
+        detail: 'Press and hold a post in the grid planner and drop it where it should go.',
+      },
+      {
+        icon: { ios: 'square.grid.3x3.square', android: 'grid_view' },
+        title: 'Grid cover carousels',
+        detail: 'Turn any tile of a grid puzzle into the first slide of a carousel: the puzzle stays whole, and tapping it opens more.',
+      },
+      {
+        icon: { ios: 'photo.stack', android: 'photo_library' },
+        title: 'Start from photos',
+        detail: 'Pick your photos first and see the templates that fit, already filled, with faces kept off the seams.',
+      },
+      {
+        icon: { ios: 'text.bubble', android: 'chat' },
+        title: 'Captions, hashtags and alt text',
+        detail: 'Written on your iPhone, with Apple Intelligence where it’s available. Nothing leaves your phone.',
+      },
+      {
+        icon: { ios: 'music.note', android: 'music_note' },
+        title: 'Motion Reels',
+        detail: 'Add a song and a gentle zoom to swipe videos, time the swipes to the beat, and export grid puzzles as a reveal reel.',
+      },
+      {
+        icon: { ios: 'shuffle', android: 'shuffle' },
+        title: 'Shuffle, end cards and more',
+        detail: 'Shuffle a design through new colourways, add a brand end card, save any carousel as a template, keep several brand kits, and add hand-drawn doodles from Shapes.',
+      },
+    ],
+  },
+  {
     id: '2026-10-brand-grid',
     version: '1.0.0',
     date: 'October 2026',

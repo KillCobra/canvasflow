@@ -172,6 +172,10 @@ export type Doc = {
    * stacked into one tall canvas. Unset for a normal carousel.
    */
   grid?: number;
+  /** Grid puzzle tiles that are also the first slide of a carousel: tile index -> carousel id. */
+  covers?: Record<string, string>;
+  /** This carousel's first slide is tile `tile` of grid puzzle `grid` (the image in layer `layer`). */
+  coverOf?: { grid: string; tile: number; layer: string };
 };
 
 export type BuiltinFontId =

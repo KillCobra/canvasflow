@@ -27,6 +27,8 @@ internal final class PanVideoExporter: @unchecked Sendable {
   /// Background color + optional background image, pre-rendered at output size.
   private let base: CGImage
   private let dots: Dots?
+  private let zoom: Bool
+  private let audio: (url: URL, start: Double, volume: Double)?
   private let outputURL: URL
   private let onProgress: (Double) -> Void
 
@@ -71,6 +73,14 @@ internal final class PanVideoExporter: @unchecked Sendable {
     }
     frameCount = max(1, Int((total * fps).rounded()))
     outputURL = try seamFileURL(from: options.outputUri, label: "outputUri")
+    zoom = options.motion == "zoom"
+    if let a = options.audio, !a.uri.isEmpty, a.volume > 0 {
+      let url = try seamFileURL(from: a.uri, label: "audio.uri")
+      try seamRequireReadableFile(url, label: "Audio source")
+      audio = (url, max(0, a.start.isFinite ? a.start : 0), a.volume)
+    } else {
+      audio = nil
+    }
 
     let w = options.window
     guard [w.x, w.y, w.width, w.height].allSatisfy({ $0.isFinite }), w.width >= 1, w.height >= 1 else {
@@ -133,32 +143,31 @@ internal final class PanVideoExporter: @unchecked Sendable {
   func run() throws -> String {
     let fm = FileManager.default
     let tempURL = fm.temporaryDirectory.appendingPathComponent("seam-pan-\(UUID().uuidString).mp4")
+    let muxedURL = fm.temporaryDirectory.appendingPathComponent("seam-pan-\(UUID().uuidString)-av.mp4")
     defer {
       try? fm.removeItem(at: tempURL)
+      try? fm.removeItem(at: muxedURL)
       slideCache.removeAll()
     }
 
     let encoder = SeamVideoEncoder(width: width, height: height, fps: fps, averageBitRate: 12_000_000)
     let report = onProgress
+    let weight = audio == nil ? 1.0 : 0.9
     let fps = self.fps
     try encoder.encode(
       frameCount: frameCount,
       to: tempURL,
-      progress: { report($0) },
+      progress: { report($0 * weight) },
       draw: { [self] index, ctx in
         try drawFrame(at: Double(index) / fps, into: ctx)
       }
     )
 
-    try fm.createDirectory(at: outputURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-    if fm.fileExists(atPath: outputURL.path) {
-      try fm.removeItem(at: outputURL)
+    var finalURL = tempURL
+    if let audio, try seamMuxSoundtrack(audioURL: audio.url, start: audio.start, volume: audio.volume, videoURL: tempURL, to: muxedURL) {
+      finalURL = muxedURL
     }
-    do {
-      try fm.moveItem(at: tempURL, to: outputURL)
-    } catch {
-      try fm.copyItem(at: tempURL, to: outputURL)
-    }
+    try seamReplaceItem(at: outputURL, with: finalURL)
     return outputURL.absoluteString
   }
 
@@ -205,6 +214,17 @@ internal final class PanVideoExporter: @unchecked Sendable {
     ctx.addPath(windowClip)
     ctx.clip()
     ctx.interpolationQuality = .none
+    if zoom {
+      // A slow push-in while each slide rests, easing back to 1x for the swipe, so the
+      // camera moves but the seam between slides always lines up.
+      let scale = CGFloat(zoomScale(at: t))
+      if scale > 1.0005 {
+        ctx.translateBy(x: window.midX, y: window.midY)
+        ctx.scaleBy(x: scale, y: scale)
+        ctx.translateBy(x: -window.midX, y: -window.midY)
+        ctx.interpolationQuality = .high
+      }
+    }
     let current = try slide(index)
     seamDrawUpright(current, in: window.offsetBy(dx: -CGFloat(shift), dy: 0), context: ctx)
     if shift > 0, index + 1 < n {
@@ -226,6 +246,20 @@ internal final class PanVideoExporter: @unchecked Sendable {
         ))
       }
     }
+  }
+
+  /// Camera zoom at time `t`: rises to 1.06 across each hold and falls back to 1 during the swipe.
+  private func zoomScale(at t: Double) -> Double {
+    let period = hold + move
+    guard period > 0 else { return 1 }
+    let local = t.truncatingRemainder(dividingBy: period)
+    let peak = 0.06
+    if local < hold {
+      let p = hold > 0 ? local / hold : 1
+      return 1 + peak * (1 - pow(1 - p, 2))
+    }
+    let p = move > 0 ? (local - hold) / move : 1
+    return 1 + peak * (1 - PanVideoExporter.ease(p))
   }
 
   /// Decodes slide `index` once, normalized to the window's pixel size (BGRA, premultiplied).

@@ -80,7 +80,11 @@ export const PLATFORM_CREDITS: Record<'ios' | 'android', Credit[]> = {
     },
     {
       title: 'Vision, Core Image and AVFoundation',
-      detail: 'Apple frameworks behind subject cutouts, face-aware seams and video export.',
+      detail: 'Apple frameworks behind subject cutouts, face-aware seams, photo labels and video export.',
+    },
+    {
+      title: 'Foundation Models',
+      detail: 'Apple’s on-device model, which writes captions and alt text on iPhones with Apple Intelligence.',
     },
   ],
   android: [

@@ -68,6 +68,31 @@ internal struct PanVideoOptionsRecord: Record {
   @Field var hold: Double = 1.6
   @Field var move: Double = 0.55
   @Field var dots: PanDotsRecord? = nil
+  /// 'none' (default) or 'zoom': a slow push-in on each slide, easing back for the swipe.
+  @Field var motion: String? = nil
+  /// Optional soundtrack (e.g. a song from Files), from `start` seconds.
+  @Field var audio: AudioRecord? = nil
+  @Field var outputUri: String = ""
+}
+
+internal struct GridRevealOptionsRecord: Record {
+  /// file:// URIs of each tile, in reading order (left to right, top to bottom).
+  @Field var tiles: [String] = []
+  @Field var columns: Int = 3
+  @Field var rows: Int = 1
+  @Field var width: Int = 1080
+  @Field var height: Int = 1920
+  @Field var background: String = "#0A0A0A"
+  /// Space between tiles, px (Instagram's profile gap).
+  @Field var gap: Double = 6
+  /// Tile indices in the order they appear (posting order: last tile first).
+  @Field var order: [Int] = []
+  @Field var fps: Double = 30
+  /// Seconds between one tile landing and the next.
+  @Field var step: Double = 0.4
+  /// Seconds the finished grid stays on screen.
+  @Field var hold: Double = 2.5
+  @Field var audio: AudioRecord? = nil
   @Field var outputUri: String = ""
 }
 
@@ -99,6 +124,16 @@ public class SeamVideoExportModule: Module {
       }
       self.runExport(id: id, label: "Seam swipe video export", promise: promise) { report in
         try PanVideoExporter(options: options, onProgress: report).run()
+      }
+    }
+
+    AsyncFunction("exportGridReveal") { [weak self] (id: String, options: GridRevealOptionsRecord, promise: Promise) in
+      guard let self else {
+        promise.reject("ERR_SEAM_VIDEO_EXPORT", "Seam video export module was released")
+        return
+      }
+      self.runExport(id: id, label: "Seam grid reveal export", promise: promise) { report in
+        try GridRevealExporter(options: options, onProgress: report).run()
       }
     }
   }

@@ -1,4 +1,4 @@
-import type { AspectId, Background, FilterId, FontId, FrameShape, ShapeLayer, Stroke, TextureId } from './types';
+import type { AspectId, Background, Doc, FilterId, FontId, FrameShape, ShapeLayer, Stroke, TextureId } from './types';
 
 // Building blocks for templates: the item types a template is made of, small
 // constructors for them, and the hand-drawn doodles. All geometry is in
@@ -86,6 +86,8 @@ export type Template = {
   isNew?: boolean;
   /** Scene ids for the sample photos in its preview (see samples.tsx). */
   samples?: string[];
+  /** A design saved from the user's own carousel: used as-is instead of `items`. */
+  doc?: Doc;
 };
 
 export const S = 1080;
