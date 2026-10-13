@@ -1,4 +1,5 @@
 import * as Device from 'expo-device';
+import { Platform } from 'react-native';
 
 import { brandProfile } from './brand';
 import { bounds } from './geometry';
@@ -155,6 +156,8 @@ export function aiNote() {
     case 'deviceNotEligible':
       return 'Written from your slides. Richer captions need an iPhone with Apple Intelligence.';
     default:
-      return 'Written from your slides. Richer captions need iOS 26 with Apple Intelligence.';
+      return Platform.OS === 'ios'
+        ? 'Written from your slides. Richer captions need iOS 26 with Apple Intelligence.'
+        : 'Written from your slides. AI-written captions are an Apple Intelligence feature, available on iOS.';
   }
 }

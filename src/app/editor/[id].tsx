@@ -2,7 +2,7 @@ import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, AppState, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, AppState, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, {
   FadeInDown,
   FadeOut,
@@ -329,10 +329,12 @@ export default function EditorScreen() {
     if (l?.type !== 'photo' || !l.src || l.video) return;
     if (!isSubjectLiftAvailable()) {
       Alert.alert(
-        'Cutouts need the Seam app',
-        isVisionAvailable()
-          ? 'Lifting a subject needs iOS 17 or later.'
-          : 'Subject cutouts use iOS Vision, which Expo Go doesn’t include. Open this project in the Seam app build.',
+        'Cutouts aren’t available',
+        Platform.OS === 'ios'
+          ? isVisionAvailable()
+            ? 'Lifting a subject needs iOS 17 or later.'
+            : 'Subject cutouts use iOS Vision, which Expo Go doesn’t include. Open this project in the Seam app build.'
+          : 'Subject cutouts rely on iOS Vision and aren’t available on this device.',
       );
       return;
     }

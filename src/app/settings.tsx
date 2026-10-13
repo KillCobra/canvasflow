@@ -143,7 +143,7 @@ export default function SettingsScreen() {
 
         <Section title="Editor">
           <Row
-            icon={{ ios: 'square.dashed', android: 'grid_guides' }}
+            icon={{ ios: 'square.dashed', android: 'grid_on' }}
             title="Snapping"
             detail="Snap to seams, slide centres and other layers"
             right={<Switch value={snapping} onValueChange={setSnapping} trackColor={{ true: C.accent, false: C.surfaceHi }} />}

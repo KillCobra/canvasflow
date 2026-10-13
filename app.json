@@ -52,7 +52,8 @@
       ],
       "expo-font",
       "./plugins/with-scene-lifecycle",
-      "./plugins/with-local-notifications-only"
+      "./plugins/with-local-notifications-only",
+      "expo-sharing"
     ],
     "experiments": {
       "typedRoutes": true,

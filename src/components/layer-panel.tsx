@@ -422,7 +422,7 @@ export function LayerPanel({
           onPress={() => setMulti(true)}
         />
         {layer.group && (
-          <ToolButton icon={{ ios: 'square.dashed', android: 'ungroup' }} label="Ungroup" onPress={() => ungroupLayers([layer.id])} />
+          <ToolButton icon={{ ios: 'square.dashed', android: 'group_remove' }} label="Ungroup" onPress={() => ungroupLayers([layer.id])} />
         )}
         <ToolButton
           icon={layer.locked ? { ios: 'lock.fill', android: 'lock' } : { ios: 'lock.open', android: 'lock_open' }}

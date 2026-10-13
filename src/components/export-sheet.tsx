@@ -3,6 +3,7 @@ import * as Haptics from 'expo-haptics';
 import { useEffect, useState } from 'react';
 import * as Clipboard from 'expo-clipboard';
 import { getDocumentAsync } from 'expo-document-picker';
+import * as Sharing from 'expo-sharing';
 import {
   ActivityIndicator,
   FlatList,
@@ -133,8 +134,15 @@ export function ExportSheet({ doc, onClose }: { doc: Doc; onClose: () => void })
         setState({ step: 'saving', progress: { ...progress, label: progress.label ?? 'Preparing to share' } }),
       );
       setState({ step: 'choose' });
-      // iOS shares the file itself; Android's share sheet only takes text.
-      await Share.share(Platform.OS === 'ios' ? { url: uri } : { message: uri });
+      // Share the exported file itself. expo-sharing attaches the real file on
+      // both iOS and Android (RN's Share only takes a URL on iOS and plain text
+      // on Android, which wouldn't carry the file). Fall back to RN Share if the
+      // platform has no share UI available.
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(uri, { mimeType: target.kind === 'swipe' ? 'video/mp4' : 'image/png' });
+      } else {
+        await Share.share(Platform.OS === 'ios' ? { url: uri } : { message: uri });
+      }
     } catch (e) {
       fail(e);
     }

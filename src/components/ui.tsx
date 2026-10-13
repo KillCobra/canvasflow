@@ -1,16 +1,30 @@
+import { MaterialIcons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { GlassView, isLiquidGlassAvailable } from 'expo-glass-effect';
 import { SymbolView, type SymbolViewProps } from 'expo-symbols';
 import * as Haptics from 'expo-haptics';
 import { type ReactNode, useEffect } from 'react';
-import { Pressable, type PressableProps, ScrollView, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
+import { Platform, Pressable, type PressableProps, ScrollView, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
 
 import { C, R, T } from '@/theme';
 
-export type IconName = SymbolViewProps['name'];
+type MaterialIconName = keyof typeof MaterialIcons.glyphMap;
+
+/** An SF Symbol name (the string form `expo-symbols` accepts). */
+type SFSymbolName = Extract<SymbolViewProps['name'], string>;
+
+/**
+ * Platform-forked icon. iOS renders an SF Symbol (`expo-symbols`); every other
+ * platform renders the Material icon named in `android`. Call sites pass the
+ * object form so both platforms are covered, e.g.
+ * `name={{ ios: 'trash', android: 'delete' }}`. A bare string is treated as an
+ * SF Symbol on iOS and ignored elsewhere (there's no Material equivalent to
+ * guess), so prefer the object form.
+ */
+export type IconName = SFSymbolName | { ios: SFSymbolName; android: string };
 
 const SPRING = { damping: 18, stiffness: 420, mass: 0.6 };
 
@@ -37,7 +51,13 @@ export function Glass({
     );
   }
   return (
-    <BlurView intensity={50} tint="systemChromeMaterialDark" style={[styles.glass, styles.glassFallback, style]}>
+    <BlurView
+      intensity={50}
+      // `systemChromeMaterialDark` is an iOS material; Android only supports the
+      // basic tints, so fall back to a plain dark blur there (the semi-opaque
+      // `glassFallback` background keeps it legible either way).
+      tint={Platform.OS === 'ios' ? 'systemChromeMaterialDark' : 'dark'}
+      style={[styles.glass, styles.glassFallback, style]}>
       {children}
     </BlurView>
   );
@@ -75,7 +95,16 @@ export function PressableScale({
 }
 
 export function Icon({ name, size = 22, color = C.text }: { name: IconName; size?: number; color?: string }) {
-  return <SymbolView name={name} size={size} tintColor={color} weight="regular" />;
+  if (Platform.OS === 'ios') {
+    const sfSymbol = typeof name === 'string' ? name : name.ios;
+    return <SymbolView name={sfSymbol} size={size} tintColor={color} weight="regular" />;
+  }
+  // Android / web: render the Material icon. The codebase names icons with
+  // underscores (Google Fonts style); MaterialIcons' glyph map uses hyphens.
+  const androidName = typeof name === 'string' ? name : name.android;
+  const glyph = androidName.replace(/_/g, '-') as MaterialIconName;
+  const resolved = glyph in MaterialIcons.glyphMap ? glyph : ('help-outline' as MaterialIconName);
+  return <MaterialIcons name={resolved} size={size} color={color} />;
 }
 
 export function IconButton({

@@ -81,7 +81,7 @@ export function MultiPanel() {
           </View>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.actions}>
             <ToolButton
-              icon={grouped ? { ios: 'square.dashed', android: 'ungroup' } : { ios: 'square.on.square.dashed', android: 'group_work' }}
+              icon={grouped ? { ios: 'square.dashed', android: 'group_remove' } : { ios: 'square.on.square.dashed', android: 'group_work' }}
               label={grouped ? 'Ungroup' : 'Group'}
               active={grouped}
               onPress={() => (grouped ? ungroupLayers(ids) : groupLayers(ids))}
