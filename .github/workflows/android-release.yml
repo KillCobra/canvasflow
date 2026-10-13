@@ -43,8 +43,16 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Set up the Android SDK packages
+        # ubuntu-latest ships the Android SDK preinstalled (ANDROID_HOME/
+        # ANDROID_SDK_ROOT are already set). Accept the licenses and make sure
+        # the NDK that React Native 0.86 builds its native code with is present;
+        # the Android Gradle Plugin pulls any remaining platform/build-tools it
+        # needs during the build.
+        run: |
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
+          "$SDKMANAGER" "ndk;27.1.12297006" "platforms;android-36" "build-tools;36.0.0"
 
       - name: Install dependencies
         run: npm ci
